@@ -1,1 +1,8 @@
 # Created by .ignore support plugin (hsz.mobi)
+/build/
+/captures/
+/.idea/
+/local.properties
+/CameraView.iml
+/library/library.iml
+/gradle/
