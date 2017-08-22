@@ -20,6 +20,14 @@ package com.zhiyun.android.base;
 public interface Constants {
     AspectRatio DEFAULT_ASPECT_RATIO = AspectRatio.of(16, 9);
 
+    // Durations in nanoseconds
+    static final long MICRO_SECOND = 1000;
+    static final long MILLI_SECOND = MICRO_SECOND * 1000;
+    static final long ONE_SECOND = MILLI_SECOND * 1000;
+
+    long mOddExposure = ONE_SECOND / 33;
+    long mEvenExposure = ONE_SECOND / 33;
+
     int MANUAL_WB_LOWER = 2000;
     int MANUAL_WB_UPER = 12000;
 

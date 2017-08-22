@@ -140,7 +140,10 @@ public class FocusMarkerLayout extends FrameLayout {
                 canvas.drawLine(getWidth(), 0, 0, getHeight(), mPaint);
                 break;
             case GRID_CENTER_POINT:
-                canvas.drawBitmap(mCenterBitmap, getWidth() / 2, getHeight() / 2, mPaint);
+                canvas.drawBitmap(mCenterBitmap,
+                        getWidth() / 2 - mCenterBitmap.getWidth() / 2,
+                        getHeight() / 2 - mCenterBitmap.getHeight() / 2,
+                        mPaint);
                 break;
         }
     }

@@ -225,7 +225,11 @@ public class MainActivity extends AppCompatActivity implements
                             R.string.camera_permission_not_granted)
                     .show(getSupportFragmentManager(), FRAGMENT_DIALOG);
         } else {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA},
+            ActivityCompat.requestPermissions(this,
+                    new String[]{
+                            Manifest.permission.CAMERA,
+                            Manifest.permission.RECORD_AUDIO,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE},
                     REQUEST_CAMERA_PERMISSION);
         }
     }
@@ -247,12 +251,9 @@ public class MainActivity extends AppCompatActivity implements
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
+                                           @NonNull int[] grantResults) {
         switch (requestCode) {
             case REQUEST_CAMERA_PERMISSION:
-                if (permissions.length != 1 || grantResults.length != 1) {
-                    throw new RuntimeException("Error on requesting camera permission.");
-                }
                 if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
                     Toast.makeText(this, R.string.camera_permission_not_granted,
                             Toast.LENGTH_SHORT).show();
@@ -320,6 +321,7 @@ public class MainActivity extends AppCompatActivity implements
                     manualMode = 1;
                 } else {
                     item.setEnabled(false);
+                    item.setTitle(item.getTitle() + "(不支持)");
                 }
                 break;
             case R.id.manual_sec:
@@ -331,6 +333,7 @@ public class MainActivity extends AppCompatActivity implements
                     manualMode = 2;
                 } else {
                     item.setEnabled(false);
+                    item.setTitle(item.getTitle() + "(不支持)");
                 }
                 break;
             case R.id.manual_iso:
@@ -342,6 +345,7 @@ public class MainActivity extends AppCompatActivity implements
                     manualMode = 3;
                 } else {
                     item.setEnabled(false);
+                    item.setTitle(item.getTitle() + "(不支持)");
                 }
                 break;
             case R.id.manual_wb:
@@ -353,6 +357,7 @@ public class MainActivity extends AppCompatActivity implements
                     manualMode = 4;
                 } else {
                     item.setEnabled(false);
+                    item.setTitle(item.getTitle() + "(不支持)");
                 }
                 break;
             case R.id.manual_af:
@@ -360,11 +365,12 @@ public class MainActivity extends AppCompatActivity implements
                     minValue = 0;
                     maxValue = (long) mCameraView.getAFMaxValue();
                     manualTitle.setText(item.getTitle());
+                    manualTitle.setText(item.getTitle());
+                    manualMode = 5;
                 } else {
                     item.setEnabled(false);
+                    item.setTitle(item.getTitle() + "(不支持)");
                 }
-                manualTitle.setText(item.getTitle());
-                manualMode = 5;
                 break;
             case R.id.manual_wt:
                 minValue = 0;
@@ -495,7 +501,7 @@ public class MainActivity extends AppCompatActivity implements
         private static final String ARG_NOT_GRANTED_MESSAGE = "not_granted_message";
 
         public static ConfirmationDialogFragment newInstance(@StringRes int message,
-                String[] permissions, int requestCode, @StringRes int notGrantedMessage) {
+                                                             String[] permissions, int requestCode, @StringRes int notGrantedMessage) {
             ConfirmationDialogFragment fragment = new ConfirmationDialogFragment();
             Bundle args = new Bundle();
             args.putInt(ARG_MESSAGE, message);
