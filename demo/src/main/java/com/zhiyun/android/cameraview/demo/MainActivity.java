@@ -90,7 +90,7 @@ public class MainActivity extends AppCompatActivity implements
             R.string.flash_on,
     };
 
-    private boolean isManualMode;
+    private boolean isHdrMode;
     private int manualMode;
     private long minValue, maxValue;
 
@@ -148,13 +148,13 @@ public class MainActivity extends AppCompatActivity implements
             actionBar.setDisplayShowTitleEnabled(false);
         }
 
-        Switch manualSwitch = (Switch) findViewById(R.id.switch_manual);
-        manualSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+        Switch hdrSwitch = (Switch) findViewById(R.id.switch_hdr);
+        hdrSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 if (mCameraView != null) {
-                    isManualMode = isChecked;
-                    mCameraView.setManualMode(isManualMode);
+                    isHdrMode = isChecked;
+                    mCameraView.setHdrMode(isHdrMode);
                 }
             }
         });

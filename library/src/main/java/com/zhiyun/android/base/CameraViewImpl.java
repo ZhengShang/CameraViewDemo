@@ -24,7 +24,7 @@ import java.util.Set;
 public abstract class CameraViewImpl {
 
     private static final int FOCUS_AREA_SIZE_DEFAULT = 200;
-    private static final int FOCUS_METERING_AREA_WEIGHT_DEFAULT = 1000;
+    private static final int FOCUS_METERING_AREA_WEIGHT_DEFAULT = 200;
     private static final int DELAY_MILLIS_BEFORE_RESETTING_FOCUS = 3000;
 
     protected final Callback mCallback;
@@ -75,6 +75,8 @@ public abstract class CameraViewImpl {
     public abstract int getFlash();
 
     public abstract void takePicture();
+
+    public abstract void setPlaySound(boolean playSound);
 
     public abstract void startRecordingVideo();
 
@@ -144,6 +146,8 @@ public abstract class CameraViewImpl {
     public abstract int getPicFormat();
 
     public abstract void setPicFormat(int format);
+
+    public abstract void setHdrMode(boolean hdr);
 
     public abstract void setManualMode(boolean manual);
 

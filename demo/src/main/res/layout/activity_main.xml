@@ -59,11 +59,11 @@
 
 
     <Switch
-        android:id="@+id/switch_manual"
+        android:id="@+id/switch_hdr"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
-        android:text="手动模式"
+        android:text="HDR"
         android:textColor="@android:color/white"/>
 
     <SeekBar

@@ -18,6 +18,8 @@ package com.zhiyun.android.cameraview;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.hardware.camera2.CameraAccessException;
@@ -55,6 +57,7 @@ import com.zhiyun.android.base.SizeMap;
 import com.zhiyun.android.listener.PictureCaptureCallback;
 import com.zhiyun.android.util.CameraUtil;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -78,6 +81,8 @@ class Camera2 extends CameraViewImpl {
         INTERNAL_FACINGS.put(Constants.FACING_BACK, CameraCharacteristics.LENS_FACING_BACK);
         INTERNAL_FACINGS.put(Constants.FACING_FRONT, CameraCharacteristics.LENS_FACING_FRONT);
     }
+
+    private List<Bitmap> mHdrBitmaps = new ArrayList<>();
 
     /**
      * Max preview width that is guaranteed by Camera2 API
@@ -231,7 +236,24 @@ class Camera2 extends CameraViewImpl {
                     ByteBuffer buffer = planes[0].getBuffer();
                     byte[] data = new byte[buffer.remaining()];
                     buffer.get(data);
-                    mCallback.onPictureTaken(data);
+
+                    if (mHdrMode) {
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+                        mHdrBitmaps.add(bitmap);
+
+                        //最后获取到最后一张图，进行合成
+                        if (mHdrImageIndex == 2) {
+                            mHDRProcessor.processHDR(mHdrBitmaps, true, null, true);
+                            ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                            mHdrBitmaps.get(0).compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                            mCallback.onPictureTaken(stream.toByteArray());
+                            unlockFocus();
+                        }
+                        mHdrImageIndex++;
+                    } else {
+                        mCallback.onPictureTaken(data);
+                        Log.e("Camera2", "onImageAvailable: send image");
+                    }
                 }
             }
         }
@@ -250,6 +272,8 @@ class Camera2 extends CameraViewImpl {
 
     private CaptureRequest.Builder mPreviewRequestBuilder;
 
+    private HDRProcessor mHDRProcessor;
+
     private ImageReader mImageReader;
 
     private final SizeMap mPreviewSizes = new SizeMap();
@@ -265,6 +289,15 @@ class Camera2 extends CameraViewImpl {
     private boolean mAutoFocus;
 
     private int mFlash;
+
+    private boolean mPlaySound;
+
+    private int mHdrImageIndex;
+
+    /**
+     * HDR照片模式
+     */
+    private boolean mHdrMode;
 
     /**
      * 当前模式，是否为手动模式
@@ -324,6 +357,10 @@ class Camera2 extends CameraViewImpl {
         if (null != mMediaRecorder) {
             mMediaRecorder.release();
             mMediaRecorder = null;
+        }
+
+        if (mHDRProcessor != null) {
+            mHDRProcessor.onDestroy();
         }
         stopBackgroundThread();
     }
@@ -437,6 +474,11 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
+    public void setHdrMode(boolean hdr) {
+        mHdrMode = hdr;
+    }
+
+    @Override
     public void setManualMode(boolean manual) {
         mManualMode = manual;
         if (manual) {
@@ -448,6 +490,11 @@ class Camera2 extends CameraViewImpl {
             setAutoFocus(true);
         }
 
+    }
+
+    @Override
+    public void setPlaySound(boolean playSound) {
+        mPlaySound = playSound;
     }
 
     @Override
@@ -632,12 +679,12 @@ class Camera2 extends CameraViewImpl {
 
     @Override
     public void takePicture() {
-        if (isRecordingVideo()) {
-            captureStillPicture();
-            return;
-        }
-        if (mAutoFocus) {
-            lockFocus();
+        if (mAutoFocus && !isRecordingVideo()) {
+            if (mHdrMode) {
+                captureHdrPicture();
+            } else {
+                lockFocus();
+            }
         } else {
             captureStillPicture();
         }
@@ -692,7 +739,10 @@ class Camera2 extends CameraViewImpl {
                     mIsRecordingVideo = true;
                     // Start recording
                     mMediaRecorder.start();
-                    mMediaActionSound.play(MediaActionSound.START_VIDEO_RECORDING);
+
+                    if (mPlaySound) {
+                        mMediaActionSound.play(MediaActionSound.START_VIDEO_RECORDING);
+                    }
                     mCallback.onVideoRecordingStarted();
                 }
 
@@ -760,7 +810,9 @@ class Camera2 extends CameraViewImpl {
         mMediaRecorder.stop();
         mMediaRecorder.reset();
 
-        mMediaActionSound.play(MediaActionSound.STOP_VIDEO_RECORDING);
+        if (mPlaySound) {
+            mMediaActionSound.play(MediaActionSound.STOP_VIDEO_RECORDING);
+        }
 
         mCallback.onVideoRecordStoped();
         try {
@@ -948,6 +1000,8 @@ class Camera2 extends CameraViewImpl {
         mImageReader = ImageReader.newInstance(mPicSize.getWidth(), mPicSize.getHeight(),
                 mPicFormat, /* maxImages */ 1);
         mImageReader.setOnImageAvailableListener(mOnImageAvailableListener, mBackgroundHandler);
+
+        mHDRProcessor = new HDRProcessor(mContext);
     }
 
     /**
@@ -1193,6 +1247,9 @@ class Camera2 extends CameraViewImpl {
                             mDisplayOrientation * (mFacing == Constants.FACING_FRONT ? 1 : -1) +
                             360) % 360);
             // Stop preview and capture a still picture.
+            if (mPlaySound) {
+                mMediaActionSound.play(MediaActionSound.SHUTTER_CLICK);
+            }
             mCaptureSession.stopRepeating();
             mCaptureSession.capture(captureRequestBuilder.build(),
                     new CameraCaptureSession.CaptureCallback() {
@@ -1206,6 +1263,48 @@ class Camera2 extends CameraViewImpl {
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "Cannot capture a still picture.", e);
+        }
+    }
+
+    private void captureHdrPicture() {
+        mHdrImageIndex = 0;
+        mHdrBitmaps.clear();
+
+        try {
+            CaptureRequest.Builder captureStillBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureStillBuilder.addTarget(mImageReader.getSurface());
+
+            // Calculate JPEG orientation.
+            @SuppressWarnings("ConstantConditions")
+            int sensorOrientation = mCameraCharacteristics.get(
+                    CameraCharacteristics.SENSOR_ORIENTATION);
+            captureStillBuilder.set(CaptureRequest.JPEG_ORIENTATION,
+                    (sensorOrientation +
+                            mDisplayOrientation * (mFacing == Constants.FACING_FRONT ? 1 : -1) +
+                            360) % 360);
+
+            List<CaptureRequest> list = new ArrayList<>();
+
+            captureStillBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+            captureStillBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, 800);
+            captureStillBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, ONE_SECOND / 30);
+
+            captureStillBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, ONE_SECOND / 200);
+            list.add(captureStillBuilder.build());
+            captureStillBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, ONE_SECOND / 24);
+//            captureStillBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, mSec);
+            list.add(captureStillBuilder.build());
+            captureStillBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, ONE_SECOND / 5);
+            list.add(captureStillBuilder.build());
+
+            if (mPlaySound) {
+                mMediaActionSound.play(MediaActionSound.SHUTTER_CLICK);
+            }
+            mCaptureSession.stopRepeating();
+            mCaptureSession.captureBurst(list, /*captureCallback*/null, mBackgroundHandler);
+
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
     }
 
@@ -1224,21 +1323,6 @@ class Camera2 extends CameraViewImpl {
     private void updatePreview() {
         try {
             mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-
-    private void changeToManualMode() {
-        try {
-            mPreviewRequestBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
-            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT,
-                    CameraMetadata.CONTROL_CAPTURE_INTENT_MANUAL);
-            mPreviewRequestBuilder.addTarget(mPreview.getSurface());
-            mCamera.createCaptureSession(
-                    Arrays.asList(mPreview.getSurface(), mImageReader.getSurface()),
-                    mSessionCallback, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
