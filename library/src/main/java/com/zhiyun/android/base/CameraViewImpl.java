@@ -1,23 +1,10 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.zhiyun.android.base;
 
 import android.util.Range;
 import android.view.View;
+
+import com.zhiyun.android.listener.OnCaptureImageCallback;
+import com.zhiyun.android.listener.OnManualValueListener;
 
 import java.util.Set;
 
@@ -25,15 +12,24 @@ public abstract class CameraViewImpl {
 
     private static final int FOCUS_AREA_SIZE_DEFAULT = 200;
     private static final int FOCUS_METERING_AREA_WEIGHT_DEFAULT = 200;
-    private static final int DELAY_MILLIS_BEFORE_RESETTING_FOCUS = 3000;
 
     protected final Callback mCallback;
+    protected OnManualValueListener mOnManualValueListener;
+    protected OnCaptureImageCallback mOnCaptureImageCallback;
 
     protected final PreviewImpl mPreview;
 
     public CameraViewImpl(Callback callback, PreviewImpl preview) {
         mCallback = callback;
         mPreview = preview;
+    }
+
+    public void addOnManualValueListener(OnManualValueListener onManualValueListener) {
+        mOnManualValueListener = onManualValueListener;
+    }
+
+    public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
+        mOnCaptureImageCallback = onCaptureImageCallback;
     }
 
     public View getView() {
@@ -53,9 +49,15 @@ public abstract class CameraViewImpl {
 
     public abstract int getFacing();
 
+    public abstract String getCameraId();
+
     public abstract Set<AspectRatio> getSupportedAspectRatios();
 
     public abstract android.util.Size[] getSupportedPicSizes();
+
+    public abstract boolean isSupported60Fps();
+
+    public abstract android.util.Size[] getSupportedVideoSize();
 
     public abstract int[] getSupportAWBModes();
 
@@ -69,6 +71,8 @@ public abstract class CameraViewImpl {
     public abstract void setAutoFocus(boolean autoFocus);
 
     public abstract boolean getAutoFocus();
+
+    public abstract boolean isFlashAvailable();
 
     public abstract void setFlash(int flash);
 
@@ -88,6 +92,10 @@ public abstract class CameraViewImpl {
 
     public abstract int getBitrate();
 
+    public abstract void setCaptureRate(double rate);
+
+    public abstract double getCaptureRate();
+
     public abstract void setVideoOutputFilePath(String path);
 
     public abstract String getVideoOutputFilePath();
@@ -104,6 +112,12 @@ public abstract class CameraViewImpl {
 
     public abstract int getManualWB();
 
+    public abstract float getAf();
+
+    public abstract float getWt();
+
+    public abstract void setPhoneOrientation(int orientation);
+
     public abstract void setDisplayOrientation(int displayOrientation);
 
     public interface Callback {
@@ -111,6 +125,8 @@ public abstract class CameraViewImpl {
         void onCameraOpened();
 
         void onCameraClosed();
+
+        void onRequestBuilderCreate();
 
         void onPictureTaken(byte[] data);
 
@@ -133,7 +149,9 @@ public abstract class CameraViewImpl {
         mPreview.getView().setOnTouchListener(null);
     }
 
-    public abstract void setLensFocalLength(int distance);
+    public abstract float getMaxZoom();
+
+    public abstract void scaleZoom(float scale);
 
     public abstract Size getPicSize();
 
@@ -143,11 +161,27 @@ public abstract class CameraViewImpl {
 
     public abstract void setVideoSize(Size size);
 
+    public abstract int getFps();
+
+    public abstract void setFps(int fps);
+
     public abstract int getPicFormat();
 
     public abstract void setPicFormat(int format);
 
     public abstract void setHdrMode(boolean hdr);
+
+    public abstract void setStabilizeEnable(boolean enable);
+    /**
+     * 是否支持防抖
+     *
+     * @return 只要支持 图片防抖 或 视频防抖 之中的一个,就返回true,反之,返回false.
+     */
+    public abstract boolean isSupportedStabilize();
+
+    public abstract boolean getStabilizeEnable();
+
+    public abstract boolean isSupportedManualMode();
 
     public abstract void setManualMode(boolean manual);
 

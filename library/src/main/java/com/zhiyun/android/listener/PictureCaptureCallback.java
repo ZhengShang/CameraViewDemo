@@ -1,19 +1,3 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.zhiyun.android.listener;
 
 /**
@@ -41,6 +25,8 @@ public abstract class PictureCaptureCallback extends CameraCaptureSession.Captur
 
     private int mState;
 
+    private OnManualValueListener mOnManualValueListener;
+
 
     public PictureCaptureCallback() {
     }
@@ -51,21 +37,24 @@ public abstract class PictureCaptureCallback extends CameraCaptureSession.Captur
 
     @Override
     public void onCaptureProgressed(@NonNull CameraCaptureSession session,
-            @NonNull CaptureRequest request, @NonNull CaptureResult partialResult) {
+                                    @NonNull CaptureRequest request, @NonNull CaptureResult partialResult) {
         process(partialResult);
     }
 
     @Override
     public void onCaptureCompleted(@NonNull CameraCaptureSession session,
-            @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+                                   @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
         process(result);
     }
 
     private void process(@NonNull CaptureResult result) {
+        onResultCallback(result);
+
         switch (mState) {
             case STATE_LOCKING: {
                 Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
                 if (af == null) {
+                    onReady();
                     break;
                 }
                 if (af == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
@@ -111,4 +100,8 @@ public abstract class PictureCaptureCallback extends CameraCaptureSession.Captur
      */
     public abstract void onPrecaptureRequired();
 
+    /**
+     * 返回CaptureResult,将当前的iso,快门速度等回到给外部
+     */
+    public abstract void onResultCallback(CaptureResult result);
 }

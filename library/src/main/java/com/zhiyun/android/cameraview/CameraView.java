@@ -1,23 +1,4 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.zhiyun.android.cameraview;
-
-import static com.zhiyun.android.base.Constants.MANUAL_WB_LOWER;
-import static com.zhiyun.android.base.Constants.MANUAL_WB_UPER;
 
 import android.app.Activity;
 import android.content.Context;
@@ -32,7 +13,6 @@ import android.support.v4.os.ParcelableCompat;
 import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.util.Range;
 import android.view.MotionEvent;
 import android.view.View;
@@ -43,12 +23,17 @@ import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
-import com.zhiyun.android.base.TextureViewPreview;
+import com.zhiyun.android.base.SurfaceViewPreview;
+import com.zhiyun.android.listener.OnCaptureImageCallback;
+import com.zhiyun.android.listener.OnManualValueListener;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Set;
+
+import static com.zhiyun.android.base.Constants.MANUAL_WB_LOWER;
+import static com.zhiyun.android.base.Constants.MANUAL_WB_UPER;
 
 public class CameraView extends FrameLayout {
 
@@ -206,7 +191,8 @@ public class CameraView extends FrameLayout {
     @NonNull
     private PreviewImpl createPreviewImpl(Context context) {
         PreviewImpl preview;
-        preview = new TextureViewPreview(context, this);
+//        preview = new TextureViewPreview(context, this);
+        preview = new SurfaceViewPreview(context, this);
         return preview;
     }
 
@@ -269,9 +255,9 @@ public class CameraView extends FrameLayout {
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
         AspectRatio ratio = getAspectRatio();
-        if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
-            ratio = ratio.inverse();
-        }
+//        if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
+//            ratio = ratio.inverse();
+//        }
         assert ratio != null;
         if (height < width * ratio.getY() / ratio.getX()) {
             mImpl.getView().measure(
@@ -364,6 +350,14 @@ public class CameraView extends FrameLayout {
         mCallbacks.remove(callback);
     }
 
+    public void addOnManualValueListener(OnManualValueListener onManualValueListener) {
+        mImpl.addOnManualValueListener(onManualValueListener);
+    }
+
+    public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
+        mImpl.addOnCaptureImageCallback(onCaptureImageCallback);
+    }
+
     /**
      * @param adjustViewBounds {@code true} if you want the CameraView to adjust its bounds to
      *                         preserve the aspect ratio of camera.
@@ -404,6 +398,10 @@ public class CameraView extends FrameLayout {
     public int getFacing() {
         //noinspection WrongConstant
         return mImpl.getFacing();
+    }
+
+    public String getCameraId() {
+        return mImpl.getCameraId();
     }
 
     /**
@@ -455,6 +453,15 @@ public class CameraView extends FrameLayout {
         return mImpl.getAutoFocus();
     }
 
+    public int[] getAvailableFlashModes() {
+        if (mImpl.isFlashAvailable()) {
+            return new int[]{FLASH_OFF, FLASH_ON, FLASH_TORCH, FLASH_AUTO};
+        } else if (mImpl.getFacing() == FACING_FRONT) {
+            return new int[]{FLASH_OFF};
+        }
+        return new int[]{};
+    }
+
     /**
      * Sets the flash mode.
      *
@@ -487,6 +494,27 @@ public class CameraView extends FrameLayout {
      */
     public int getBitrate() {
         return mImpl.getBitrate();
+    }
+
+    public void setCaptureRate(double rate) {
+        mImpl.setCaptureRate(rate);
+    }
+
+    public double getCaptureRate() {
+        return mImpl.getCaptureRate();
+    }
+
+    /**
+     * 设置当前手机的真实朝向.
+     * 因为在{ CameraActivity2}中,设置了强制横屏,所以{@link DisplayOrientationDetector#onDisplayOrientationChanged(int)}
+     * 不会随着手机方向的改变而触发.
+     * 所以单独使用一个变量{@link Camera2#mPhoneOrientation}来保存当前手机的方向,
+     * 然后在拍摄完照片或录制完视频的时候,旋转一定的方向,以使输出的图像永远是竖直朝向的
+     *
+     * @param orientation 当前的手机方向,[0,90,180,270]
+     */
+    public void setPhoneOrientation(int orientation) {
+        mImpl.setPhoneOrientation(orientation);
     }
 
     /**
@@ -571,12 +599,32 @@ public class CameraView extends FrameLayout {
         return mImpl.getVideoSize();
     }
 
+    public int getFps() {
+        return mImpl.getFps();
+    }
+
+    public void setFps(int fps) {
+        mImpl.setFps(fps);
+    }
+
     public android.util.Size[] getSupportedPicSizes() {
         return mImpl.getSupportedPicSizes();
     }
 
-    public void setWTlen(int value) {
-        mImpl.setLensFocalLength(value);
+    public boolean isSupported60Fps() {
+        return mImpl.isSupported60Fps();
+    }
+
+    public android.util.Size[] getSupportedVideoSize() {
+        return mImpl.getSupportedVideoSize();
+    }
+
+    public float getMaxZoom() {
+        return mImpl.getMaxZoom();
+    }
+
+    public void setWTlen(float value) {
+        mImpl.scaleZoom(value);
     }
 
     public void setGridType(int type) {
@@ -598,6 +646,22 @@ public class CameraView extends FrameLayout {
 
     public void setHdrMode(boolean hdr) {
         mImpl.setHdrMode(hdr);
+    }
+
+    public boolean isSupportedStabilize() {
+        return mImpl.isSupportedStabilize();
+    }
+
+    public void setStabilizeEnable(boolean enable) {
+        mImpl.setStabilizeEnable(enable);
+    }
+
+    public boolean getStabilizeEnable() {
+        return mImpl.getStabilizeEnable();
+    }
+
+    public boolean isSupportedManualMode() {
+        return mImpl.isSupportedManualMode();
     }
 
     public void setManualMode(boolean manual) {
@@ -660,6 +724,14 @@ public class CameraView extends FrameLayout {
         return mImpl.getAFMaxValue();
     }
 
+    public float getAf() {
+        return mImpl.getAf();
+    }
+
+    public float getWt() {
+        return mImpl.getWt();
+    }
+
     public void setManualAFValue(float value) {
         mImpl.setAFValue(value);
     }
@@ -701,9 +773,18 @@ public class CameraView extends FrameLayout {
         }
 
         @Override
+        public void onRequestBuilderCreate() {
+            for (Callback callback : mCallbacks) {
+                callback.onRequestBuilderCreate(CameraView.this);
+            }
+        }
+
+        @Override
         public void onPictureTaken(byte[] data) {
             for (Callback callback : mCallbacks) {
                 callback.onPictureTaken(CameraView.this, data);
+
+                mFocusMarkerLayout.capture();
             }
         }
 
@@ -767,7 +848,7 @@ public class CameraView extends FrameLayout {
             out.writeInt(flash);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final Creator<SavedState> CREATOR
                 = ParcelableCompat.newCreator(new ParcelableCompatCreatorCallbacks<SavedState>() {
 
             @Override
@@ -804,6 +885,10 @@ public class CameraView extends FrameLayout {
          * @param cameraView The associated {@link CameraView}.
          */
         public void onCameraClosed(CameraView cameraView) {
+        }
+
+        public void onRequestBuilderCreate(CameraView cameraView) {
+
         }
 
         /**

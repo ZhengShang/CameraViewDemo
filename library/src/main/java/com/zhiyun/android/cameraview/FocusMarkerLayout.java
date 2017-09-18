@@ -1,26 +1,7 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.zhiyun.android.cameraview;
 
-import static com.zhiyun.android.cameraview.CameraView.GRID_CENTER_POINT;
-import static com.zhiyun.android.cameraview.CameraView.GRID_GRID;
-import static com.zhiyun.android.cameraview.CameraView.GRID_GRID_AND_DIAGONAL;
-import static com.zhiyun.android.cameraview.CameraView.GRID_NONE;
-
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -33,21 +14,29 @@ import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
+import static com.zhiyun.android.cameraview.CameraView.GRID_CENTER_POINT;
+import static com.zhiyun.android.cameraview.CameraView.GRID_GRID;
+import static com.zhiyun.android.cameraview.CameraView.GRID_GRID_AND_DIAGONAL;
+import static com.zhiyun.android.cameraview.CameraView.GRID_NONE;
+
 @TargetApi(14)
 public class FocusMarkerLayout extends FrameLayout {
 
     private final Animation scaleAnimation, alphaAnimation;
+    private FrameLayout mRootLayout;
     private FrameLayout mFocusMarkerContainer;
     private ImageView mOuterCircle;
     private ImageView mInnerCircle;
     private Paint mPaint;
     private int mGridType;
     private Bitmap mCenterBitmap;
+    private ArgbEvaluator argbEvaluator;
 
     public FocusMarkerLayout(@NonNull Context context) {
         this(context, null);
@@ -59,6 +48,9 @@ public class FocusMarkerLayout extends FrameLayout {
         LayoutInflater.from(getContext()).inflate(R.layout.layout_focus_marker, this);
 
         initPaint();
+
+        mRootLayout = (FrameLayout) findViewById(R.id.root_layout);
+        argbEvaluator = new ArgbEvaluator();
 
         mFocusMarkerContainer = (FrameLayout) findViewById(R.id.focusMarkerContainer);
         mOuterCircle = (ImageView) findViewById(R.id.inner_circle);
@@ -78,8 +70,11 @@ public class FocusMarkerLayout extends FrameLayout {
 
             @Override
             public void onAnimationEnd(Animation animation) {
-                mFocusMarkerContainer.animate().alpha(0).setStartDelay(750).setDuration(
-                        800).setListener(null).start();
+                mFocusMarkerContainer
+                        .animate()
+                        .alpha(0)
+                        .setStartDelay(750)
+                        .setDuration(800);
             }
 
             @Override
@@ -87,6 +82,32 @@ public class FocusMarkerLayout extends FrameLayout {
 
             }
         });
+    }
+
+    /**
+     * 作为拍摄照片完成时的屏幕闪烁白色动画
+     */
+    public void capture() {
+        ValueAnimator animator = ValueAnimator.ofFloat(0, 1f);
+        animator.setDuration(200);
+        animator.setInterpolator(new AccelerateInterpolator());
+        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                final float fraction = (float) animation.getAnimatedValue();
+
+                mRootLayout.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mRootLayout.setBackgroundColor(
+                                (Integer) argbEvaluator.evaluate(fraction,
+                                        Color.WHITE,
+                                        Color.TRANSPARENT));
+                    }
+                });
+            }
+        });
+        animator.start();
     }
 
     public void focus(float mx, float my) {

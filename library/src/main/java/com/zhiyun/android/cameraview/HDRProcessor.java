@@ -172,8 +172,9 @@ public class HDRProcessor {
     public void processHDR(List<Bitmap> bitmaps, boolean release_bitmaps, Bitmap output_bitmap, boolean assume_sorted) {
         int n_bitmaps = bitmaps.size();
         if (n_bitmaps != 3) {
+            return;
             // throw RuntimeException, as this is a programming error
-            throw new RuntimeException();
+//            throw new RuntimeException();
         }
         for (int i = 1; i < n_bitmaps; i++) {
             if (bitmaps.get(i).getWidth() != bitmaps.get(0).getWidth() ||
