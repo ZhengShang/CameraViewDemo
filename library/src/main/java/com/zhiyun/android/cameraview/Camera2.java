@@ -413,6 +413,12 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
+    public void reOpenSession() {
+        closePreviewSession();
+        startCaptureSession();
+    }
+
+    @Override
     public void setFacing(int facing) {
         if (mFacing == facing) {
             return;
@@ -1018,11 +1024,11 @@ class Camera2 extends CameraViewImpl {
         }
 
         mCallback.onVideoRecordStoped();
-        try {
-            CameraUtil.remuxing(mNextVideoAbsolutePath);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+//        try {
+//            CameraUtil.remuxing(mNextVideoAbsolutePath);
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
 //        mNextVideoAbsolutePath = null;
 
         startCaptureSession();
@@ -1437,6 +1443,11 @@ class Camera2 extends CameraViewImpl {
         int b = rect.height() / 2 + halfHeight;
 
         newRect = new Rect(l, t, r, b);
+
+        if (newRect.contains(rect)) {
+            Log.e("Camera2", "scaleZoom: contains = " + newRect.toString() + "----->" + rect.toString());
+            return;
+        }
 
         mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
         updatePreview();
