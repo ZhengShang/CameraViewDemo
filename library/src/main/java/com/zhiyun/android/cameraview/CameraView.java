@@ -24,6 +24,7 @@ import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.base.SurfaceViewPreview;
+import com.zhiyun.android.base.TextureViewPreview;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 
@@ -191,8 +192,8 @@ public class CameraView extends FrameLayout {
     @NonNull
     private PreviewImpl createPreviewImpl(Context context) {
         PreviewImpl preview;
-//        preview = new TextureViewPreview(context, this);
-        preview = new SurfaceViewPreview(context, this);
+        preview = new TextureViewPreview(context, this);
+//        preview = new SurfaceViewPreview(context, this);
         return preview;
     }
 
