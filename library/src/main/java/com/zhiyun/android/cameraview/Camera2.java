@@ -413,6 +413,12 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
+    public void reOpenSession() {
+        closePreviewSession();
+        startCaptureSession();
+    }
+
+    @Override
     public void setFacing(int facing) {
         if (mFacing == facing) {
             return;
