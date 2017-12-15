@@ -55,6 +55,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.List;
 import java.util.Set;
 
 
@@ -338,9 +339,15 @@ public class MainActivity extends AppCompatActivity implements
                 break;
             case R.id.manual_iso:
                 if (mCameraView.isManualISOSupported()) {
-                    Range<Integer> isoRange = mCameraView.getISORange();
-                    maxValue = isoRange.getUpper();
-                    minValue = isoRange.getLower();
+                    Object range = mCameraView.getISORange();
+                    if (range instanceof Range) {
+                        Range<Integer> isoRange = (Range<Integer>) range;
+                        maxValue = isoRange.getUpper();
+                        minValue = isoRange.getLower();
+                    } else if (range instanceof List) {
+                        maxValue = (long) ((List) range).get(((List) range).size() - 1);
+                        minValue = (long) ((List) range).get(0);
+                    }
                     manualTitle.setText(item.getTitle());
                     manualMode = 3;
                 } else {
