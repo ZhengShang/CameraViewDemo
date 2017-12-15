@@ -1,25 +1,18 @@
 package com.zhiyun.android.util;
 
+import android.content.Context;
+import android.graphics.Color;
 import android.hardware.camera2.params.RggbChannelVector;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.Surface;
+import android.widget.Toast;
 
-import com.coremedia.iso.IsoFile;
-import com.coremedia.iso.boxes.Container;
-import com.coremedia.iso.boxes.TimeToSampleBox;
-import com.coremedia.iso.boxes.TrackBox;
-import com.googlecode.mp4parser.FileDataSourceImpl;
-import com.googlecode.mp4parser.authoring.Movie;
-import com.googlecode.mp4parser.authoring.Mp4TrackImpl;
-import com.googlecode.mp4parser.authoring.builder.DefaultMp4Builder;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.cameraview.BuildConfig;
+import com.zhiyun.android.cameraview.R;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.util.List;
 import java.util.SortedSet;
 
 import static android.content.ContentValues.TAG;
@@ -30,51 +23,6 @@ import static android.content.ContentValues.TAG;
  */
 
 public class CameraUtil {
-
-    public static String remuxing(String videoFile) throws IOException {
-        FileDataSourceImpl channel = new FileDataSourceImpl(videoFile);
-        IsoFile isoFile = new IsoFile(channel);
-        List<TrackBox> trackBoxes = isoFile.getMovieBox().getBoxes(TrackBox.class);
-        boolean sampleError = false;
-        for (TrackBox trackBox : trackBoxes) {
-            TimeToSampleBox.Entry firstEntry =
-                    trackBox.getMediaBox().getMediaInformationBox().getSampleTableBox()
-                            .getTimeToSampleBox().getEntries().get(
-                            0);
-
-            // Detect if first sample is a problem and fix it in isoFile
-            // This is a hack. The audio deltas are 1024 for my files, and video deltas about 3000
-            // 10000 seems sufficient since for 30 fps the normal delta is about 3000
-            if (firstEntry.getDelta() > 10000) {
-                sampleError = true;
-                firstEntry.setDelta(3000);
-            }
-        }
-
-        String muxingPath = null;
-
-        if (sampleError) {
-            Movie movie = new Movie();
-            for (TrackBox trackBox : trackBoxes) {
-                movie.addTrack(new Mp4TrackImpl(
-                        channel.toString() + "[" + trackBox.getTrackHeaderBox().getTrackId() + "]",
-                        trackBox));
-            }
-            movie.setMatrix(isoFile.getMovieBox().getMovieHeaderBox().getMatrix());
-            Container out = new DefaultMp4Builder().build(movie);
-
-            muxingPath = videoFile.substring(0, videoFile.lastIndexOf(".mp4"))
-                    + "0.mp4"; // 创建新文件文件名
-            FileChannel fc = new FileOutputStream(muxingPath).getChannel();
-
-            out.writeContainer(fc);
-
-            fc.close();
-            boolean ignored = new File(videoFile).delete(); // 删除原来的文件
-        }
-
-        return muxingPath;
-    }
 
     public static int clamp(int x, int min, int max) {
         if (x < min) {
@@ -210,9 +158,9 @@ public class CameraUtil {
     /**
      * Chooses the optimal preview size based on PreviewSizes and the surface size.
      *
-     * @return The picked size for camera preview.
      * @param preview
      * @param aspectSizes
+     * @return The picked size for camera preview.
      */
     public static Size chooseOptimalSize(PreviewImpl preview, SortedSet<Size> aspectSizes) {
         int surfaceLonger, surfaceShorter;
@@ -234,5 +182,74 @@ public class CameraUtil {
         }
         // If no size is big enough, pick the largest one.
         return aspectSizes.last();
+    }
+
+    private static boolean isRotation0(int orientation) {
+        return orientation > 340 || orientation < 20;
+    }
+
+    private static boolean isRotation90(int orientation) {
+        return orientation > 70 && orientation < 110;
+    }
+
+    private static boolean isRotation180(int orientation) {
+        return orientation > 160 && orientation < 200;
+    }
+
+    private static boolean isRotation270(int orientation) {
+        return orientation > 250 && orientation < 290;
+    }
+
+    /**
+     * @param oriRotation 当前的朝向
+     */
+    public static int translate2Rotation(int orientation,int oriRotation) {
+        int rotation;
+        if (isRotation270(orientation)) {
+            rotation = Surface.ROTATION_270;
+        } else if (isRotation180(orientation)) {
+            rotation = Surface.ROTATION_180;
+        } else if (isRotation90(orientation)) {
+            rotation = Surface.ROTATION_90;
+        } else if (isRotation0(orientation)) {
+            rotation = Surface.ROTATION_0;
+        } else {
+            //在临界值中间的角度时,
+            rotation = oriRotation;
+        }
+        return rotation;
+    }
+
+    /**
+     * 根据传入的当前方向,以一定的角度来显示Toast
+     *
+     * @param message  显示的文字
+     * @param rotation 当前屏幕的方向,应当传入如下四个值之一
+     *
+     * @see android.view.Surface#ROTATION_0
+     * @see android.view.Surface#ROTATION_90
+     * @see android.view.Surface#ROTATION_180
+     * @see android.view.Surface#ROTATION_270
+     */
+    public static void show(Context context,String message, int rotation) {
+        RotateTextView textView = new RotateTextView(context);
+        textView.setText(message);
+        textView.setTextColor(Color.BLACK);
+        textView.setBackgroundResource(R.drawable.shape_rectangle_yellow_16_corner);
+        textView.setDirection(rotation);
+
+        Toast toast = new Toast(context);
+        toast.setView(textView);
+        toast.setDuration(Toast.LENGTH_SHORT);
+        if (rotation == 0) {
+            toast.setGravity(Gravity.START, 300, -30);
+        } else if (rotation == 1) {
+            toast.setGravity(Gravity.BOTTOM, 30, 100);
+        } else if (rotation == 2) {
+            toast.setGravity(Gravity.END, 300, -30);
+        } else {
+            toast.setGravity(Gravity.TOP, 30, 100);
+        }
+        toast.show();
     }
 }

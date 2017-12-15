@@ -1,9 +1,14 @@
 package com.zhiyun.android.cameraview;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -12,13 +17,22 @@ import android.graphics.drawable.BitmapDrawable;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.LocalBroadcastManager;
+import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.view.GestureDetector;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
+import android.view.View;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+
+import com.zhiyun.android.base.CameraViewImpl;
+import com.zhiyun.android.util.CameraUtil;
 
 import static com.zhiyun.android.cameraview.CameraView.GRID_CENTER_POINT;
 import static com.zhiyun.android.cameraview.CameraView.GRID_GRID;
@@ -28,15 +42,25 @@ import static com.zhiyun.android.cameraview.CameraView.GRID_NONE;
 @TargetApi(14)
 public class FocusMarkerLayout extends FrameLayout {
 
+    public static final String BROADCAST_ACTION_TAKE_PHOTO = "zyplay.action.take.photo";
+    public static final String BROADCAST_ACTION_RECORING_STOP = "zyplay.action.recording.stop";
+
+    private CameraViewImpl mImpl;
     private final Animation scaleAnimation, alphaAnimation;
-    private FrameLayout mRootLayout;
-    private FrameLayout mFocusMarkerContainer;
+    private View mFocusMarkerContainer;
     private ImageView mOuterCircle;
     private ImageView mInnerCircle;
+    private AEsun mAEsun;
     private Paint mPaint;
     private int mGridType;
     private Bitmap mCenterBitmap;
-    private ArgbEvaluator argbEvaluator;
+    private ArgbEvaluator argbEvaluator = new ArgbEvaluator();
+
+    private ScaleGestureDetector mScaleGestureDetector;
+    private GestureDetector mGestureDetector;
+
+    private boolean mLocked; //ae/af lock
+    private int mRotation;
 
     public FocusMarkerLayout(@NonNull Context context) {
         this(context, null);
@@ -49,12 +73,10 @@ public class FocusMarkerLayout extends FrameLayout {
 
         initPaint();
 
-        mRootLayout = (FrameLayout) findViewById(R.id.root_layout);
-        argbEvaluator = new ArgbEvaluator();
-
-        mFocusMarkerContainer = (FrameLayout) findViewById(R.id.focusMarkerContainer);
-        mOuterCircle = (ImageView) findViewById(R.id.inner_circle);
-        mInnerCircle = (ImageView) findViewById(R.id.outer_circle);
+        mFocusMarkerContainer = findViewById(R.id.focusContainer);
+        mOuterCircle = findViewById(R.id.inner_circle);
+        mInnerCircle = findViewById(R.id.outer_circle);
+        mAEsun = findViewById(R.id.aeSun);
 
         mFocusMarkerContainer.setAlpha(0);
 
@@ -64,17 +86,17 @@ public class FocusMarkerLayout extends FrameLayout {
         scaleAnimation.setAnimationListener(new Animation.AnimationListener() {
             @Override
             public void onAnimationStart(Animation animation) {
-                mFocusMarkerContainer.setAlpha(1f);
-                mFocusMarkerContainer.animate().cancel();
+                if (!mLocked) {
+                    mFocusMarkerContainer.setAlpha(1f);
+                    mFocusMarkerContainer.animate().cancel();
+                }
             }
 
             @Override
             public void onAnimationEnd(Animation animation) {
-                mFocusMarkerContainer
-                        .animate()
-                        .alpha(0)
-                        .setStartDelay(750)
-                        .setDuration(800);
+                if (!mLocked) {
+                    dilutedFocusToDismiss();
+                }
             }
 
             @Override
@@ -82,12 +104,73 @@ public class FocusMarkerLayout extends FrameLayout {
 
             }
         });
+
+        mGestureDetector = new GestureDetector(context, new MyGestureListener());
+        mScaleGestureDetector = new ScaleGestureDetector(context, new ScaleGestureListener());
+
+        mAEsun.setOnAEChangeListener(new AEsun.OnAEChangeListener() {
+            @Override
+            public void onAEchanged(int ae) {
+                mImpl.setAEValue(ae);
+            }
+        });
+    }
+
+    public void setImpl(CameraViewImpl impl) {
+        mImpl = impl;
+    }
+
+    public void setRotation(int rotation) {
+        mRotation = rotation;
+        mFocusMarkerContainer.setRotation(90 * (3 - rotation));
+    }
+
+    public void setMaxAeRange(int maxAe) {
+        mAEsun.setMaxAeRange(maxAe);
+    }
+
+    /**
+     * 是否可以滑动屏幕来调节ae
+     */
+    private boolean canScrollAEchanged() {
+        return mFocusMarkerContainer.getAlpha() != 0;
+    }
+
+    private void increaseAe() {
+        mAEsun.increaseAe();
+        dilutedFocusToDismiss();
+    }
+
+    private void decreaseAe() {
+        mAEsun.decreaseAe();
+        dilutedFocusToDismiss();
+    }
+
+    /**
+     * 先减淡对焦框的颜色,然后5000ms后消失
+     */
+    private void dilutedFocusToDismiss() {
+        if (mLocked) {
+            return;
+        }
+        mFocusMarkerContainer.setAlpha(1);
+        mFocusMarkerContainer
+                .animate()
+                .alpha(0.4f)
+                .setStartDelay(750)
+                .setDuration(800)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        mFocusMarkerContainer.animate().alpha(0).setStartDelay(5000);
+                    }
+                });
     }
 
     /**
      * 作为拍摄照片完成时的屏幕闪烁白色动画
      */
-    public void capture() {
+    private void capture() {
         ValueAnimator animator = ValueAnimator.ofFloat(0, 1f);
         animator.setDuration(200);
         animator.setInterpolator(new AccelerateInterpolator());
@@ -96,10 +179,10 @@ public class FocusMarkerLayout extends FrameLayout {
             public void onAnimationUpdate(ValueAnimator animation) {
                 final float fraction = (float) animation.getAnimatedValue();
 
-                mRootLayout.post(new Runnable() {
+                post(new Runnable() {
                     @Override
                     public void run() {
-                        mRootLayout.setBackgroundColor(
+                        setBackgroundColor(
                                 (Integer) argbEvaluator.evaluate(fraction,
                                         Color.WHITE,
                                         Color.TRANSPARENT));
@@ -110,7 +193,7 @@ public class FocusMarkerLayout extends FrameLayout {
         animator.start();
     }
 
-    public void focus(float mx, float my) {
+    private void focus(float mx, float my) {
         int x = (int) (mx - mFocusMarkerContainer.getWidth() / 2);
         int y = (int) (my - mFocusMarkerContainer.getWidth() / 2);
 
@@ -123,6 +206,20 @@ public class FocusMarkerLayout extends FrameLayout {
         mInnerCircle.startAnimation(scaleAnimation);
         mOuterCircle.startAnimation(alphaAnimation);
 
+    }
+
+    private void unLockAEandAF() {
+        mLocked = false;
+        mAEsun.resetAe();
+    }
+
+    private void lockAEandAF() {
+        CameraUtil.show(getContext(), getContext().getString(R.string.ae_af_lock), mRotation);
+        mInnerCircle.clearAnimation();
+        mOuterCircle.clearAnimation();
+        mFocusMarkerContainer.animate().cancel();
+        mFocusMarkerContainer.setAlpha(1);
+        mLocked = true;
     }
 
     public int getGridType() {
@@ -176,5 +273,122 @@ public class FocusMarkerLayout extends FrameLayout {
         //纵线
         canvas.drawLine(getWidth() / 3, 0, getWidth() / 3, getHeight(), mPaint);
         canvas.drawLine(2 * getWidth() / 3, 0, 2 * getWidth() / 3, getHeight(), mPaint);
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(BROADCAST_ACTION_TAKE_PHOTO);
+        intentFilter.addAction(BROADCAST_ACTION_RECORING_STOP);
+        LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(mLocalBroadcast);
+        super.onDetachedFromWindow();
+    }
+
+    /**
+     * 使用广播接收{@link Camera2#mOnImageAvailableListener}拍照完成的回调,以便调用本来的capture()方法.
+     * 播放背景色闪烁动画.
+     * <p>
+     * 之所以使用广播的方式,是因为在{@link CameraView}中的CallbackBridge是静态方法,无法直接调用本类的{@link #capture()}
+     */
+    private BroadcastReceiver mLocalBroadcast = new BroadcastReceiver() {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (TextUtils.isEmpty(intent.getAction())) {
+                return;
+            }
+            switch (intent.getAction()) {
+                case BROADCAST_ACTION_TAKE_PHOTO:
+                    capture();
+                    break;
+                case BROADCAST_ACTION_RECORING_STOP:
+                    mFocusMarkerContainer.setAlpha(0);
+                    break;
+            }
+        }
+    };
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (mImpl == null) {
+            return true;
+        }
+        if (mImpl.isManualMode()) {
+            return true;
+        }
+        mGestureDetector.onTouchEvent(event);
+        mScaleGestureDetector.onTouchEvent(event);
+        return true;
+    }
+
+    private class ScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
+
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            if (mImpl.isManualWTSupported()) {
+                mImpl.gestureScaleZoom(detector.getScaleFactor());
+            }
+            return true;
+        }
+    }
+
+    /**
+     * 处理:
+     * 1.点击对焦
+     * 2.长按锁定AE/AF
+     * 3.上下滑动调节AE
+     */
+    private class MyGestureListener extends GestureDetector.SimpleOnGestureListener {
+        @Override
+        public void onLongPress(MotionEvent e) {
+            unLockAEandAF();
+            mImpl.unLockAEandAF();
+            focus(e.getX(), e.getY());
+            lockAEandAF();
+            mImpl.resetAF(e, true);
+        }
+
+        @Override
+        public boolean onSingleTapUp(MotionEvent e) {
+            unLockAEandAF();
+            focus(e.getX(), e.getY());
+            mImpl.unLockAEandAF();
+            mImpl.resetAF(e, false);
+            return super.onSingleTapUp(e);
+        }
+
+        @Override
+        public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+            if (e2.getPointerCount() > 1) {
+                return true;
+            }
+            if (!canScrollAEchanged()) {
+                return true;
+            }
+            if (mRotation == 0) {
+                adjustAe((int) distanceX);
+            } else if (mRotation == 2) {
+                adjustAe((int) -distanceX);
+            } else if (mRotation == 1) {
+                adjustAe((int) -distanceY);
+            } else if (mRotation == 3) {
+                adjustAe((int) distanceY);
+            }
+            return true;
+        }
+    }
+
+    private void adjustAe(int distance) {
+        if (distance > 0) {
+            increaseAe();
+        } else if (distance < 0) {
+            decreaseAe();
+        }
     }
 }

@@ -65,6 +65,11 @@ public class SurfaceViewPreview extends PreviewImpl {
     }
 
     @Override
+    public void setBufferSize(int width, int height) {
+        mSurfaceView.getHolder().setFixedSize(width, height);
+    }
+
+    @Override
     public boolean isReady() {
         return getWidth() != 0 && getHeight() != 0;
     }

@@ -1,5 +1,6 @@
 package com.zhiyun.android.base;
 
+import android.media.CamcorderProfile;
 import android.support.annotation.NonNull;
 
 /**
@@ -60,4 +61,17 @@ public class Size implements Comparable<Size> {
         return mWidth * mHeight - another.mWidth * another.mHeight;
     }
 
+    public CamcorderProfile getCamcorderProfile() {
+        if (mWidth == 720 && mHeight == 480) {
+            return CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
+        } else if (mWidth == 1280 && mHeight == 720) {
+            return CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
+        } else if (mWidth == 1920 && mHeight == 1080) {
+            return CamcorderProfile.get(CamcorderProfile.QUALITY_1080P);
+        } else if (mWidth == 3840 && mHeight == 2160) {
+            return CamcorderProfile.get(CamcorderProfile.QUALITY_2160P);
+        } else {
+            return CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
+        }
+    }
 }

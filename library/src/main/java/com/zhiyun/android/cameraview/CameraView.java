@@ -3,7 +3,7 @@ package com.zhiyun.android.cameraview;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.os.Build;
+import android.graphics.Bitmap;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.IntDef;
@@ -14,8 +14,6 @@ import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.util.Range;
-import android.view.MotionEvent;
-import android.view.View;
 import android.widget.FrameLayout;
 
 import com.zhiyun.android.base.AspectRatio;
@@ -23,18 +21,16 @@ import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
-import com.zhiyun.android.base.SurfaceViewPreview;
 import com.zhiyun.android.base.TextureViewPreview;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
-
-import static com.zhiyun.android.base.Constants.MANUAL_WB_LOWER;
-import static com.zhiyun.android.base.Constants.MANUAL_WB_UPER;
 
 public class CameraView extends FrameLayout {
 
@@ -117,7 +113,7 @@ public class CameraView extends FrameLayout {
 
     private final DisplayOrientationDetector mDisplayOrientationDetector;
 
-    private boolean mMultiTouch;
+    private PreviewImpl mPreview;
 
     public CameraView(Context context) {
         this(context, null);
@@ -136,13 +132,9 @@ public class CameraView extends FrameLayout {
             return;
         }
         // Internal setup
-        final PreviewImpl preview = createPreviewImpl(context);
-        mCallbacks = new CallbackBridge();
-        if (Build.VERSION.SDK_INT < 23) {
-            mImpl = new Camera2(mCallbacks, preview, context);
-        } else {
-            mImpl = new Camera2Api23(mCallbacks, preview, context);
-        }
+        mPreview = createPreviewImpl(context);
+        mCallbacks = new CallbackBridge(this);
+        mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext());
         // Attributes
         final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CameraView,
                 defStyleAttr,
@@ -158,35 +150,22 @@ public class CameraView extends FrameLayout {
         setAutoFocus(a.getBoolean(R.styleable.CameraView_autoFocus, true));
         setFlash(a.getInt(R.styleable.CameraView_flash, Constants.FLASH_AUTO));
         a.recycle();
+
+        mFocusMarkerLayout = new FocusMarkerLayout(getContext());
+        addView(mFocusMarkerLayout);
+
         // Display orientation detector
         mDisplayOrientationDetector = new DisplayOrientationDetector(context) {
             @Override
             public void onDisplayOrientationChanged(int displayOrientation) {
                 mImpl.setDisplayOrientation(displayOrientation);
             }
-        };
 
-        mFocusMarkerLayout = new FocusMarkerLayout(getContext());
-        addView(mFocusMarkerLayout);
-        mFocusMarkerLayout.setOnTouchListener(new OnTouchListener() {
             @Override
-            public boolean onTouch(View v, MotionEvent motionEvent) {
-                if (!getAutoFocus()) {
-                    return true;
-                }
-                int action = motionEvent.getActionMasked();
-                if (action == MotionEvent.ACTION_DOWN) {
-                    mMultiTouch = false;
-                } else if (action == MotionEvent.ACTION_POINTER_DOWN) {
-                    mMultiTouch = true;
-                } else if (action == MotionEvent.ACTION_UP && !mMultiTouch) {
-                    mFocusMarkerLayout.focus(motionEvent.getX(), motionEvent.getY());
-                }
-
-                preview.getView().dispatchTouchEvent(motionEvent);
-                return true;
+            public void onRealOrientationChanged(int rotation) {
+                mFocusMarkerLayout.setRotation(rotation);
             }
-        });
+        };
     }
 
     @NonNull
@@ -211,6 +190,10 @@ public class CameraView extends FrameLayout {
             mDisplayOrientationDetector.disable();
         }
         super.onDetachedFromWindow();
+
+        if (mCallbacks != null && mCallbacks.mCallbacks != null) {
+            mCallbacks.mCallbacks.clear();
+        }
     }
 
     @Override
@@ -259,17 +242,20 @@ public class CameraView extends FrameLayout {
 //        if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
 //            ratio = ratio.inverse();
 //        }
-        assert ratio != null;
-        if (height < width * ratio.getY() / ratio.getX()) {
-            mImpl.getView().measure(
-                    MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(width * ratio.getY() / ratio.getX(),
-                            MeasureSpec.EXACTLY));
-        } else {
-            mImpl.getView().measure(
-                    MeasureSpec.makeMeasureSpec(height * ratio.getX() / ratio.getY(),
-                            MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+
+        if (ratio != null) {
+
+            if (height < width * ratio.getY() / ratio.getX()) {
+                mImpl.getView().measure(
+                        MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(width * ratio.getY() / ratio.getX(),
+                                MeasureSpec.EXACTLY));
+            } else {
+                mImpl.getView().measure(
+                        MeasureSpec.makeMeasureSpec(height * ratio.getX() / ratio.getY(),
+                                MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+            }
         }
     }
 
@@ -305,15 +291,13 @@ public class CameraView extends FrameLayout {
         if (!mImpl.start()) {
             //store the state ,and restore this state after fall back o Camera1
             Parcelable state = onSaveInstanceState();
-            final PreviewImpl preview = createPreviewImpl(getContext());
-            if (Build.VERSION.SDK_INT < 23) {
-                mImpl = new Camera2(mCallbacks, preview, getContext());
-            } else {
-                mImpl = new Camera2Api23(mCallbacks, preview, getContext());
-            }
+//            mPreview = createPreviewImpl(getContext());
+            mImpl = new Camera1(mCallbacks, mPreview, getContext());
             onRestoreInstanceState(state);
             mImpl.start();
         }
+        mFocusMarkerLayout.setMaxAeRange(mImpl.getAERange().getUpper());
+        mFocusMarkerLayout.setImpl(mImpl);
     }
 
     /**
@@ -556,6 +540,14 @@ public class CameraView extends FrameLayout {
         mImpl.setPlaySound(playSound);
     }
 
+    public void setMuteVideo(boolean muteVideo) {
+        mImpl.setMuteVideo(muteVideo);
+    }
+
+    public boolean getMuteVideo() {
+        return mImpl.getMuteVideo();
+    }
+
     /**
      * Take a picture. The result will be returned to
      * {@link Callback#onPictureTaken(CameraView, byte[])}.
@@ -608,7 +600,7 @@ public class CameraView extends FrameLayout {
         mImpl.setFps(fps);
     }
 
-    public android.util.Size[] getSupportedPicSizes() {
+    public List<android.util.Size> getSupportedPicSizes() {
         return mImpl.getSupportedPicSizes();
     }
 
@@ -616,12 +608,28 @@ public class CameraView extends FrameLayout {
         return mImpl.isSupported60Fps();
     }
 
-    public android.util.Size[] getSupportedVideoSize() {
+    public List<android.util.Size> getSupportedVideoSize() {
         return mImpl.getSupportedVideoSize();
     }
 
     public float getMaxZoom() {
         return mImpl.getMaxZoom();
+    }
+
+    public List<Integer> getZoomRatios() {
+        return mImpl.getZoomRatios();
+    }
+
+    public String getCameraAPI() {
+        return mImpl.getCameraAPI();
+    }
+
+    public void zoomIn() {
+        mImpl.zoomIn();
+    }
+
+    public void zoomOut() {
+        mImpl.zoomOut();
     }
 
     public void setWTlen(float value) {
@@ -697,7 +705,7 @@ public class CameraView extends FrameLayout {
         return mImpl.isManualISOSupported();
     }
 
-    public Range<Integer> getISORange() {
+    public Object getISORange() {
         return mImpl.getISORange();
     }
 
@@ -710,7 +718,7 @@ public class CameraView extends FrameLayout {
     }
 
     public Range<Integer> getManualWBRange() {
-        return new Range<>(MANUAL_WB_LOWER, MANUAL_WB_UPER);
+        return mImpl.getManualWBRange();
     }
 
     public void setManualWBValue(int value) {
@@ -737,14 +745,28 @@ public class CameraView extends FrameLayout {
         mImpl.setAFValue(value);
     }
 
+    public boolean isManualWTSupported() {
+        return mImpl.isManualWTSupported();
+    }
 
-    private class CallbackBridge implements CameraViewImpl.Callback {
+    public Bitmap getPreviewFrameBitmap(){
+        return mPreview.getFrameBitmap();
+    }
+
+    public Bitmap getPreviewFrameBitmap(int width, int height) {
+        return mPreview.getFrameBitmap(width, height);
+    }
+
+    private static class CallbackBridge implements CameraViewImpl.Callback {
 
         private final ArrayList<Callback> mCallbacks = new ArrayList<>();
 
         private boolean mRequestLayoutOnOpen;
 
-        CallbackBridge() {
+        private WeakReference<CameraView> cameraView;
+
+        CallbackBridge(CameraView cameraView) {
+            this.cameraView = new WeakReference<>(cameraView);
         }
 
         public void add(Callback callback) {
@@ -759,54 +781,54 @@ public class CameraView extends FrameLayout {
         public void onCameraOpened() {
             if (mRequestLayoutOnOpen) {
                 mRequestLayoutOnOpen = false;
-                requestLayout();
+                if (cameraView.get() != null) {
+                    cameraView.get().requestLayout();
+                }
             }
             for (Callback callback : mCallbacks) {
-                callback.onCameraOpened(CameraView.this);
+                callback.onCameraOpened(cameraView.get());
             }
         }
 
         @Override
         public void onCameraClosed() {
             for (Callback callback : mCallbacks) {
-                callback.onCameraClosed(CameraView.this);
+                callback.onCameraClosed(cameraView.get());
             }
         }
 
         @Override
         public void onRequestBuilderCreate() {
             for (Callback callback : mCallbacks) {
-                callback.onRequestBuilderCreate(CameraView.this);
+                callback.onRequestBuilderCreate(cameraView.get());
             }
         }
 
         @Override
         public void onPictureTaken(byte[] data) {
             for (Callback callback : mCallbacks) {
-                callback.onPictureTaken(CameraView.this, data);
-
-                mFocusMarkerLayout.capture();
+                callback.onPictureTaken(cameraView.get(), data);
             }
         }
 
         @Override
         public void onVideoRecordingStarted() {
             for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingStarted(CameraView.this);
+                callback.onVideoRecordingStarted(cameraView.get());
             }
         }
 
         @Override
         public void onVideoRecordStoped() {
             for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingStoped(CameraView.this);
+                callback.onVideoRecordingStoped(cameraView.get());
             }
         }
 
         @Override
         public void onVideoRecordingFailed() {
             for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingFailed(CameraView.this);
+                callback.onVideoRecordingFailed(cameraView.get());
             }
         }
 

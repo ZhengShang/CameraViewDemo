@@ -2,6 +2,7 @@ package com.zhiyun.android.base;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.view.Surface;
@@ -21,7 +22,7 @@ public class TextureViewPreview extends PreviewImpl {
 
     public TextureViewPreview(Context context, ViewGroup parent) {
         final View view = View.inflate(context, R.layout.texture_view, parent);
-        mTextureView = (TextureView) view.findViewById(R.id.texture_view);
+        mTextureView = view.findViewById(R.id.texture_view);
         mTextureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
 
             @Override
@@ -127,5 +128,16 @@ public class TextureViewPreview extends PreviewImpl {
         }
         mTextureView.setTransform(matrix);
     }
+
+    @Override
+    public Bitmap getFrameBitmap() {
+        return mTextureView.getBitmap();
+    }
+
+    @Override
+    public Bitmap getFrameBitmap(int width, int height) {
+        return mTextureView.getBitmap(width, height);
+    }
+
 
 }

@@ -15,7 +15,7 @@ float parameter_B1 = 0.0f;
 float parameter_A2 = 1.0f;
 float parameter_B2 = 0.0f;
 
-const float weight_scale_c = (float)((1.0-1.0/127.5)/127.5);
+//const float weight_scale_c = (float)((1.0f-1.0f/127.5f)/127.5f);
 float tonemap_scale = 1.0f;
 
 /*
@@ -53,7 +53,7 @@ uchar4 __attribute__((kernel)) hdr(uchar4 in, uint32_t x, uint32_t y) {
         parameter_B[0] = parameter_B1;
 	}
 
-	// middle image is not offset
+	// middle media is not offset
 	pixels[1] = in;
 	parameter_A[1] = parameter_A1;
 	parameter_B[1] = parameter_B1;
@@ -91,7 +91,7 @@ uchar4 __attribute__((kernel)) hdr(uchar4 in, uint32_t x, uint32_t y) {
 		hdr_b += weight * b;
 		sum_weight += weight;
 	}*/
-	// assumes 3 bitmaps, with middle bitmap being the "base" exposure, and first image being darker, third image being brighter
+	// assumes 3 bitmaps, with middle bitmap being the "base" exposure, and first media being darker, third media being brighter
 	{
 		//const float safe_range_c = 64.0f;
 		const float safe_range_c = 96.0f;
@@ -111,7 +111,7 @@ uchar4 __attribute__((kernel)) hdr(uchar4 in, uint32_t x, uint32_t y) {
 		sum_weight += weight;
 
 		if( weight < 1.0 ) {
-			// now look at a neighbour image
+			// now look at a neighbour media
 			weight = 1.0f - weight;
 			if( avg <= 127.5f ) {
 				rgb = (float3){ (float)pixels[2].r, (float)pixels[2].g, (float)pixels[2].b };

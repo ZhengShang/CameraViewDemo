@@ -1,27 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-             android:id="@+id/root_layout"
-             android:layout_width="match_parent"
-             android:layout_height="match_parent">
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <FrameLayout
-        android:id="@+id/focusMarkerContainer"
-        android:layout_width="70dp"
-        android:layout_height="70dp">
+    <LinearLayout
+        android:id="@+id/focusContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <ImageView
-            android:id="@+id/inner_circle"
+        <FrameLayout
+            android:id="@+id/focusMarkerContainer"
+            android:layout_width="70dp"
+            android:layout_height="70dp">
+
+            <ImageView
+                android:id="@+id/inner_circle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_focus_inner"/>
+
+            <ImageView
+                android:id="@+id/outer_circle"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/ic_fouce_outer"/>
+
+        </FrameLayout>
+
+        <com.zhiyun.android.cameraview.AEsun
+            android:id="@+id/aeSun"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_focus_inner"/>
+            android:layout_height="120dp"/>
+    </LinearLayout>
 
-        <ImageView
-            android:id="@+id/outer_circle"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:src="@drawable/ic_fouce_outer"/>
-
-    </FrameLayout>
-
-</FrameLayout>
+</merge>

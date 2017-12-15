@@ -1,5 +1,6 @@
 package com.zhiyun.android.base;
 
+import android.graphics.Bitmap;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.View;
@@ -60,6 +61,14 @@ public abstract class PreviewImpl {
 
     public int getHeight() {
         return mHeight;
+    }
+
+    public Bitmap getFrameBitmap() {
+        return null;
+    }
+
+    public Bitmap getFrameBitmap(int width, int height) {
+        return null;
     }
 
 }
