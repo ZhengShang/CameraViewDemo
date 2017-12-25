@@ -1345,6 +1345,7 @@ class Camera2 extends CameraViewImpl {
             return;
         }
 
+        scale = Math.round(scale * 10) / 10f;
         mWt = scale;
 
         Rect rect = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);

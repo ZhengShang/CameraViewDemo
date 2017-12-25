@@ -462,7 +462,6 @@ public abstract class CameraViewImpl {
         if (mMediaRecorder != null) {
             try {
                 mMediaRecorder.stop();
-                mMediaRecorder.reset();
                 mMediaRecorder.release();
                 mMediaRecorder = null;
             } catch (Exception e) {
