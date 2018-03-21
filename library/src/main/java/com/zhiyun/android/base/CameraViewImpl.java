@@ -86,16 +86,16 @@ public abstract class CameraViewImpl {
     /**
      * 视频码率
      */
-    protected int mBitrate;
+    protected int mBitrate = 10000000;
 
     /**
      * 捕获帧,可实现慢动作,延迟摄影等功能
      */
-    protected double mCaptureRate;
+    protected double mCaptureRate = 30;
     /**
      * 视频帧率
      */
-    protected int mFps;
+    protected int mFps = 30;
 
     protected int mAwbMode;
     protected int mAe;
