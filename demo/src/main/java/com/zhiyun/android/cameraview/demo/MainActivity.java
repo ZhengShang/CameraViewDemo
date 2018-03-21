@@ -482,7 +482,7 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         @Override
-        public void onVideoRecordingStoped(final CameraView cameraView) {
+        public void onVideoRecordingStopped(final CameraView cameraView) {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {

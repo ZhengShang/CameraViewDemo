@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -26,10 +27,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.animation.AccelerateInterpolator;
-import android.view.animation.Animation;
-import android.view.animation.AnimationUtils;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 
 import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.util.CameraUtil;
@@ -46,10 +44,8 @@ public class FocusMarkerLayout extends FrameLayout {
     public static final String BROADCAST_ACTION_RECORING_STOP = "zyplay.action.recording.stop";
 
     private CameraViewImpl mImpl;
-    private final Animation scaleAnimation, alphaAnimation;
     private View mFocusMarkerContainer;
-    private ImageView mOuterCircle;
-    private ImageView mInnerCircle;
+    private View mFocusLayout;
     private AEsun mAEsun;
     private Paint mPaint;
     private int mGridType;
@@ -61,6 +57,8 @@ public class FocusMarkerLayout extends FrameLayout {
 
     private boolean mLocked; //ae/af lock
     private int mRotation;
+
+    private boolean mEnableScaleZoom = true;
 
     public FocusMarkerLayout(@NonNull Context context) {
         this(context, null);
@@ -74,36 +72,10 @@ public class FocusMarkerLayout extends FrameLayout {
         initPaint();
 
         mFocusMarkerContainer = findViewById(R.id.focusContainer);
-        mOuterCircle = findViewById(R.id.inner_circle);
-        mInnerCircle = findViewById(R.id.outer_circle);
+        mFocusLayout = findViewById(R.id.focusLayout);
         mAEsun = findViewById(R.id.aeSun);
 
         mFocusMarkerContainer.setAlpha(0);
-
-        alphaAnimation = AnimationUtils.loadAnimation(context, R.anim.focus_inner_circle);
-        scaleAnimation = AnimationUtils.loadAnimation(context, R.anim.focus_outer_circle);
-
-        scaleAnimation.setAnimationListener(new Animation.AnimationListener() {
-            @Override
-            public void onAnimationStart(Animation animation) {
-                if (!mLocked) {
-                    mFocusMarkerContainer.setAlpha(1f);
-                    mFocusMarkerContainer.animate().cancel();
-                }
-            }
-
-            @Override
-            public void onAnimationEnd(Animation animation) {
-                if (!mLocked) {
-                    dilutedFocusToDismiss();
-                }
-            }
-
-            @Override
-            public void onAnimationRepeat(Animation animation) {
-
-            }
-        });
 
         mGestureDetector = new GestureDetector(context, new MyGestureListener());
         mScaleGestureDetector = new ScaleGestureDetector(context, new ScaleGestureListener());
@@ -129,6 +101,11 @@ public class FocusMarkerLayout extends FrameLayout {
         mAEsun.setMaxAeRange(maxAe);
     }
 
+    public FocusMarkerLayout setEnableScaleZoom(boolean enableScaleZoom) {
+        mEnableScaleZoom = enableScaleZoom;
+        return this;
+    }
+
     /**
      * 是否可以滑动屏幕来调节ae
      */
@@ -136,13 +113,29 @@ public class FocusMarkerLayout extends FrameLayout {
         return mFocusMarkerContainer.getAlpha() != 0;
     }
 
-    private void increaseAe() {
+    public void increaseAe() {
+        if (!canScrollAEchanged()) {
+            return;
+        }
         mAEsun.increaseAe();
         dilutedFocusToDismiss();
     }
 
-    private void decreaseAe() {
+    public void decreaseAe() {
+        if (!canScrollAEchanged()) {
+            return;
+        }
         mAEsun.decreaseAe();
+        dilutedFocusToDismiss();
+    }
+
+    public void showAeAdjust() {
+        int x = Resources.getSystem().getDisplayMetrics().widthPixels / 2 - mFocusMarkerContainer.getWidth() / 2;
+        int y = Resources.getSystem().getDisplayMetrics().heightPixels / 2 - mFocusMarkerContainer.getHeight() / 2;
+
+        mFocusMarkerContainer.setTranslationX(x);
+        mFocusMarkerContainer.setTranslationY(y);
+
         dilutedFocusToDismiss();
     }
 
@@ -200,11 +193,18 @@ public class FocusMarkerLayout extends FrameLayout {
         mFocusMarkerContainer.setTranslationX(x);
         mFocusMarkerContainer.setTranslationY(y);
 
-        mInnerCircle.clearAnimation();
-        mOuterCircle.clearAnimation();
+        mFocusMarkerContainer.setAlpha(1);
 
-        mInnerCircle.startAnimation(scaleAnimation);
-        mOuterCircle.startAnimation(alphaAnimation);
+        mFocusLayout.setScaleX(1.3f);
+        mFocusLayout.setScaleY(1.3f);
+        mFocusLayout.setAlpha(0.6f);
+        mFocusLayout.animate().scaleX(1).scaleY(1).alpha(1)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        dilutedFocusToDismiss();
+                    }
+                });
 
     }
 
@@ -215,8 +215,6 @@ public class FocusMarkerLayout extends FrameLayout {
 
     private void lockAEandAF() {
         CameraUtil.show(getContext(), getContext().getString(R.string.ae_af_lock), mRotation);
-        mInnerCircle.clearAnimation();
-        mOuterCircle.clearAnimation();
         mFocusMarkerContainer.animate().cancel();
         mFocusMarkerContainer.setAlpha(1);
         mLocked = true;
@@ -323,7 +321,9 @@ public class FocusMarkerLayout extends FrameLayout {
             return true;
         }
         mGestureDetector.onTouchEvent(event);
-        mScaleGestureDetector.onTouchEvent(event);
+        if (mEnableScaleZoom) {
+            mScaleGestureDetector.onTouchEvent(event);
+        }
         return true;
     }
 
@@ -370,6 +370,12 @@ public class FocusMarkerLayout extends FrameLayout {
             }
             if (!canScrollAEchanged()) {
                 return true;
+            }
+            if (mAEsun.getMaxAe() == 0) {
+                if (mImpl.getAERange() == null) {
+                    return true;
+                }
+                mAEsun.setMaxAeRange(mImpl.getAERange().getUpper());
             }
             if (mRotation == 0) {
                 adjustAe((int) distanceX);

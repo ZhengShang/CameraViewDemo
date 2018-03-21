@@ -57,6 +57,8 @@ public class AEsun extends View {
      */
     private Point mBottomLineSegment;
 
+    private boolean mIsShowLine;
+
     private OnAEChangeListener mOnAEChangeListener;
 
     public AEsun(Context context, @Nullable AttributeSet attrs) {
@@ -66,7 +68,7 @@ public class AEsun extends View {
 
     private void init() {
         mPaint = new Paint();
-        mPaint.setColor(Color.YELLOW);
+        mPaint.setColor(Color.parseColor("#ffcc00"));
 
         mTopLineSegment = new Point();
         mBottomLineSegment = new Point();
@@ -93,6 +95,10 @@ public class AEsun extends View {
     protected void onDraw(Canvas canvas) {
         canvas.drawBitmap(mSunBitmap, mSunLeftCoor, mSunTopCoor, mPaint);
 
+        if (!mIsShowLine) {
+            return;
+        }
+
         if (mSunTopCoor <= mHalfDistance) {
             //only draw bottom line segment
             canvas.drawLine(mCenterX, mBottomLineSegment.x, mCenterX, mBottomLineSegment.y, mPaint);
@@ -107,13 +113,25 @@ public class AEsun extends View {
         }
     }
 
+    private void showLine() {
+        mIsShowLine = true;
+    }
+
+    private void hideLine() {
+        mIsShowLine = false;
+    }
+
     public void setMaxAeRange(int maxAe) {
         this.maxAe = maxAe;
     }
 
+    public int getMaxAe() {
+        return maxAe;
+    }
+
     private void calcuCurrentAe() {
         //progress==100的时候,其实是ae最小的时候,所以如下的计算去反值
-        int ae = - (mProgress - 50) * maxAe / 50;
+        int ae = -(mProgress - 50) * maxAe / 50;
         if (mOnAEChangeListener != null) {
             mOnAEChangeListener.onAEchanged(ae);
         }
@@ -121,6 +139,7 @@ public class AEsun extends View {
 
     public void resetAe() {
         setProgress(50);
+        hideLine();
     }
 
     public void increaseAe() {
@@ -142,8 +161,11 @@ public class AEsun extends View {
     public void setProgress(int progress) {
         mProgress = progress;
         updateParms();
+        showLine();
         invalidate();
         calcuCurrentAe();
+        removeCallbacks(mHideLineTask);
+        postDelayed(mHideLineTask, 2000);
     }
 
     private void updateParms() {
@@ -156,11 +178,21 @@ public class AEsun extends View {
         mBottomLineSegment.y = getHeight() - mHalfDistance;
     }
 
+    private Runnable mHideLineTask = new Runnable() {
+        @Override
+        public void run() {
+            if (isAttachedToWindow()) {
+                hideLine();
+                invalidate();
+            }
+        }
+    };
+
     public void setOnAEChangeListener(OnAEChangeListener onAEChangeListener) {
         mOnAEChangeListener = onAEChangeListener;
     }
 
-    interface OnAEChangeListener{
+    interface OnAEChangeListener {
         void onAEchanged(int ae);
     }
 }

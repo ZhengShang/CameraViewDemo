@@ -17,4 +17,9 @@ public interface OnManualValueListener {
      * 实时返回当前的快门速度(sec)数值
      */
     void onSecChanged(long sec);
+
+    /**
+     * 白平衡色温变化
+     */
+    void onTemperatureChanged(int temperature);
 }

@@ -1,20 +1,20 @@
 package com.zhiyun.android.base;
 
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.ImageFormat;
+import android.media.MediaActionSound;
 import android.media.MediaRecorder;
-import android.media.SoundPool;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 import android.util.Range;
+import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.View;
 
 import com.zhiyun.android.cameraview.FocusMarkerLayout;
-import com.zhiyun.android.cameraview.R;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
+import com.zhiyun.android.recorder.MediaRecord;
 
 import java.util.List;
 import java.util.Set;
@@ -63,7 +63,7 @@ public abstract class CameraViewImpl {
      * MediaRecorder
      */
     protected MediaRecorder mMediaRecorder;
-
+    protected MediaRecord mMediaRecord;
 
     /**
      * 加载[拍照][录像]时的声音
@@ -71,7 +71,8 @@ public abstract class CameraViewImpl {
     protected static final int SOUND_ID_START = 0;
     protected static final int SOUND_ID_STOP = 1;
     protected static final int SOUND_ID_CLICK = 2;
-    private SoundPool mSoundPool;
+    //    private SoundPool mSoundPool;
+    private MediaActionSound mMediaActionSound;
     private int[] mSoundId = new int[3];
     private boolean mPlaySound = Constants.DEFAULT_PLAY_SOUND;
 
@@ -102,7 +103,10 @@ public abstract class CameraViewImpl {
     protected int mIso;
     protected int mManualWB;
     protected float mAf;
-    protected float mWt;
+    protected float mWt = 1;
+    protected float mZoomRatio = 1;
+
+    private Choreographer.FrameCallback mFocusFrameCallback;
 
     public CameraViewImpl(Callback callback, PreviewImpl preview) {
         mCallback = callback;
@@ -127,9 +131,13 @@ public abstract class CameraViewImpl {
     public abstract boolean start();
 
     public void stop() {
-        if (mSoundPool != null) {
-            mSoundPool.release();
-            mSoundPool = null;
+//        if (mSoundPool != null) {
+//            mSoundPool.release();
+//            mSoundPool = null;
+//        }
+        if (mMediaActionSound != null) {
+            mMediaActionSound.release();
+            mMediaActionSound = null;
         }
     }
 
@@ -149,6 +157,10 @@ public abstract class CameraViewImpl {
     public abstract boolean isSupported60Fps();
 
     public abstract List<android.util.Size> getSupportedVideoSize();
+
+    public float getFpsWithSize(android.util.Size size) {
+        return 30;
+    }
 
     public abstract int[] getSupportAWBModes();
 
@@ -175,7 +187,7 @@ public abstract class CameraViewImpl {
      * 根据点击区域重新对焦
      * @param lock 对焦完成后,是否锁定AE/AF
      */
-    public abstract void resetAF(MotionEvent e,boolean lock);
+    public abstract void resetAF(MotionEvent e, boolean lock);
 
     /**
      * 锁定AE和AF.
@@ -196,12 +208,14 @@ public abstract class CameraViewImpl {
                 return;
             }
             mWt += 0.1f;
+            mWt = Math.round(mWt * 10) / 10f;
             scaleZoom(mWt);
         } else if (factor <= 0.999f) {
             if (mWt <= 1) {
                 return;
             }
             mWt -= 0.1f;
+            mWt = Math.round(mWt * 10) / 10f;
             scaleZoom(mWt);
         }
     }
@@ -280,6 +294,56 @@ public abstract class CameraViewImpl {
         return mWt;
     }
 
+    public float getZoomRatio() {
+        return mZoomRatio;
+    }
+
+    public abstract void stopSmoothZoom();
+
+    public abstract void startSmoothZoom(float end, long duration);
+
+    public void stopSmoothFocus() {
+        if (mFocusFrameCallback != null) {
+            Choreographer.getInstance().removeFrameCallback(mFocusFrameCallback);
+            mFocusFrameCallback = null;
+        }
+    }
+
+    public void startSmoothFocus(final float end, long duration) {
+        stopSmoothFocus();
+        if (end == mAf) {
+            return;
+        }
+        final long delay = (long) (duration / (Math.abs(mAf - end) * 10));
+        final boolean isShrink = mAf > end;
+        mFocusFrameCallback = new Choreographer.FrameCallback() {
+            @Override
+            public void doFrame(long frameTimeNanos) {
+                if (!isCameraOpened()) {
+                    Choreographer.getInstance().removeFrameCallback(this);
+                    return;
+                }
+                if (isShrink) {
+                    if (mAf <= end) {
+                        Choreographer.getInstance().removeFrameCallback(this);
+                        return;
+                    }
+                    mAf -= 0.1f;
+                } else {
+                    if (mAf >= end) {
+                        Choreographer.getInstance().removeFrameCallback(this);
+                        return;
+                    }
+                    mAf += 0.1f;
+                }
+                mAf = Math.round(mAf * 10) / 10f;
+                setAFValue(mAf);
+                Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
+            }
+        };
+        Choreographer.getInstance().postFrameCallback(mFocusFrameCallback);
+    }
+
     public abstract void setPhoneOrientation(int orientation);
 
     public abstract void setDisplayOrientation(int displayOrientation);
@@ -327,6 +391,22 @@ public abstract class CameraViewImpl {
         gestureScaleZoom(1.011f);
     }
 
+    public void foucsNear() {
+        if (mAf > 0) {
+            mAf -= 0.1;
+            mAf = Math.round(mAf * 10) / 10f;
+            setAFValue(mAf);
+        }
+    }
+
+    public void focusFar() {
+        if (mAf < getAFMaxValue()) {
+            mAf += 0.1;
+            mAf = Math.round(mAf * 10) / 10f;
+            setAFValue(mAf);
+        }
+    }
+
     public Size getPicSize() {
         return mPicSize;
     }
@@ -357,7 +437,7 @@ public abstract class CameraViewImpl {
         mPicFormat = format;
     }
 
-    public void setHdrMode(boolean hdr){
+    public void setHdrMode(boolean hdr) {
         mHdrMode = hdr;
     }
 
@@ -387,12 +467,16 @@ public abstract class CameraViewImpl {
         return mManualMode;
     }
 
+    public abstract void setIsoAuto();
+
     //ae
     public abstract boolean isManualAESupported();
 
     public abstract Range<Integer> getAERange();
 
     public abstract void setAEValue(int value);
+
+    public abstract float getAeStep();
 
     //sec
     public abstract boolean isManualSecSupported();
@@ -444,16 +528,34 @@ public abstract class CameraViewImpl {
     }
 
     protected void loadAudio() {
-        Context context = getView().getContext();
-        mSoundPool = new SoundPool.Builder().build();
-        mSoundId[SOUND_ID_START] = mSoundPool.load(context, R.raw.cam_start, 1);
-        mSoundId[SOUND_ID_STOP] = mSoundPool.load(context, R.raw.cam_stop, 1);
-        mSoundId[SOUND_ID_CLICK] = mSoundPool.load(context, R.raw.camera_click, 1);
+//        Context context = getView().getContext();
+//        mSoundPool = new SoundPool.Builder().build();
+//        mSoundId[SOUND_ID_START] = mSoundPool.load(context, R.raw.cam_start, 1);
+//        mSoundId[SOUND_ID_STOP] = mSoundPool.load(context, R.raw.cam_stop, 1);
+//        mSoundId[SOUND_ID_CLICK] = mSoundPool.load(context, R.raw.camera_click, 1);
+        mMediaActionSound = new MediaActionSound();
+        mMediaActionSound.load(MediaActionSound.SHUTTER_CLICK);
+        mMediaActionSound.load(MediaActionSound.START_VIDEO_RECORDING);
+        mMediaActionSound.load(MediaActionSound.STOP_VIDEO_RECORDING);
     }
 
     protected void playSound(int soundId) {
+//        if (mPlaySound) {
+//            mSoundPool.play(mSoundId[soundId], 0.5f, 0.5f, 1, 0, 1);
+//        }
+
         if (mPlaySound) {
-            mSoundPool.play(mSoundId[soundId], 0.5f, 0.5f, 1, 0, 1);
+            switch (soundId) {
+                case SOUND_ID_CLICK:
+                    mMediaActionSound.play(MediaActionSound.SHUTTER_CLICK);
+                    break;
+                case SOUND_ID_START:
+                    mMediaActionSound.play(MediaActionSound.START_VIDEO_RECORDING);
+                    break;
+                case SOUND_ID_STOP:
+                    mMediaActionSound.play(MediaActionSound.STOP_VIDEO_RECORDING);
+                    break;
+            }
         }
     }
 
@@ -462,10 +564,20 @@ public abstract class CameraViewImpl {
         if (mMediaRecorder != null) {
             try {
                 mMediaRecorder.stop();
+                mMediaRecorder.reset();
                 mMediaRecorder.release();
                 mMediaRecorder = null;
             } catch (Exception e) {
                 Log.e("CameraViewImpl", "releaseMediaRecorder: e = " + e.getMessage());
+            }
+        }
+        if (mMediaRecord != null) {
+            try {
+                mMediaRecord.stop();
+                mMediaRecord.reset();
+                mMediaRecord = null;
+            } catch (Exception e) {
+                Log.e("CameraViewImpl", "releaseMediaRecord: e = " + e.getMessage());
             }
         }
     }

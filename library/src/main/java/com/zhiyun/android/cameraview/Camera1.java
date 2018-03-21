@@ -11,6 +11,7 @@ import android.support.v4.util.SparseArrayCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Range;
+import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
@@ -20,6 +21,7 @@ import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.base.SizeMap;
+import com.zhiyun.android.util.CameraUtil;
 
 import java.io.IOException;
 import java.text.DecimalFormat;
@@ -91,6 +93,7 @@ public class Camera1 extends CameraViewImpl {
     private int mPhoneOrientation;
 
     private final Object mCameraLock = new Object();
+    private Choreographer.FrameCallback mZoomFrameCallback;
 
     Camera1(Callback callback, PreviewImpl preview, Context context) {
         super(callback, preview);
@@ -269,9 +272,6 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void setAutoFocus(boolean autoFocus) {
-        if (mAutoFocus == autoFocus) {
-            return;
-        }
         if (setAutoFocusInternal(autoFocus)) {
             setParameters();
         }
@@ -368,6 +368,11 @@ public class Camera1 extends CameraViewImpl {
             if ("xiaomi".equalsIgnoreCase(Build.MANUFACTURER)) {
                 stop();
                 start();
+            } else {
+                //回调此方法,主要的目的在于,在移动延时摄影时,可能调整了CaptureRate的参数.
+                //所以用这个方法使CameraActivity2来进行相机参数的重新设置.
+                //上面的小米手机通过重启相机也已经包含了这个回调.
+                mCallback.onRequestBuilderCreate();
             }
         }
     }
@@ -379,10 +384,10 @@ public class Camera1 extends CameraViewImpl {
             mMediaRecorder = new MediaRecorder();
             mMediaRecorder.setCamera(mCamera);
 
-            playSound(SOUND_ID_START);
+//            playSound(SOUND_ID_START);
 
             if (!mMuteVideo) {
-                mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
+                mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             }
             mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 
@@ -546,6 +551,15 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public float getMaxZoom() {
+        //为了保持和Camera2的单位一致,这里进行了转换.
+        return mCameraParameters.getMaxZoom() / 10f - 1;
+    }
+
+    /**
+     * @return 返回Camera1表示的最大zoom
+     * 即{@link #getZoomRatios()}的最后一个元素的index.
+     */
+    private int getMaxZoomByCamera1() {
         return mCameraParameters.getMaxZoom();
     }
 
@@ -559,38 +573,98 @@ public class Camera1 extends CameraViewImpl {
         if (mCamera == null) {
             return;
         }
-        if (scale > getMaxZoom() || scale < 0) {
+        //确保只有1位小数
+        scale = Math.round(scale * 10) / 10f;
+
+        float maxWt = getMaxZoom();
+        int maxZoom = getMaxZoomByCamera1();
+
+        if (scale > maxWt || scale < 1) {
             return;
         }
-
         mWt = scale;
-        mCameraParameters.setZoom((int) (scale));
+        int zoom = (int) (maxZoom * (scale - 1) / (maxWt - 1));
+        mZoomRatio = getZoomRatios().get(zoom) / 100f;
+        mCameraParameters.setZoom(zoom);
         setParameters();
     }
 
     @Override
     public void gestureScaleZoom(float factor) {
-        if (mWt > getMaxZoom()) {
-            mWt = getMaxZoom();
-            if (getZoom() != getMaxZoom()) {
-                scaleZoom(mWt);
-            }
+        if (mCameraParameters == null) {
             return;
         }
-        if (mWt < 0) {
-            mWt = 0;
-            if (getZoom() != 0) {
-                scaleZoom(mWt);
-            }
-            return;
-        }
+
+        float maxWt = getMaxZoom();
+        int maxZoom = getMaxZoomByCamera1();
+        int zoom = getZoom();
         int delta = (int) ((factor - 1) * 100);
-        mWt += delta;
-        scaleZoom(mWt);
+        zoom += delta;
+        if (zoom > maxZoom) {
+            scaleZoom(maxWt);
+            return;
+        }
+        if (zoom < 0) {
+            scaleZoom(1);
+            return;
+        }
+        mWt = (zoom * (maxWt - 1) + maxZoom) / maxZoom;
+        mWt = Math.round(mWt * 100) / 100f;
+        mZoomRatio = getZoomRatios().get(zoom) / 100f;
+        mCameraParameters.setZoom(zoom);
+        setParameters();
     }
 
     private int getZoom() {
         return mCameraParameters.getZoom();
+    }
+
+    @Override
+    public void stopSmoothZoom() {
+        if (mZoomFrameCallback != null) {
+            Log.d("Camera1", "stopSmoothZoom");
+            Choreographer.getInstance().removeFrameCallback(mZoomFrameCallback);
+        }
+    }
+
+    @Override
+    public void startSmoothZoom(final float end, final long duration) {
+
+        // 2.0 ~ 3.0 2000ms
+
+        stopSmoothZoom();
+
+        if (end == mWt) {
+            return;
+        }
+
+        final long delay = (long) (duration / (Math.abs(mWt - end) * 10));
+        final boolean isShrink = mWt > end;
+        mZoomFrameCallback = new Choreographer.FrameCallback() {
+            @Override
+            public void doFrame(long frameTimeNanos) {
+                if (mCamera == null) {
+                    Choreographer.getInstance().removeFrameCallback(this);
+                    return;
+                }
+                if (isShrink) {
+                    if (mWt <= end) {
+                        Choreographer.getInstance().removeFrameCallback(this);
+                        return;
+                    }
+                    mWt -= 0.1f;
+                } else {
+                    if (mWt >= end) {
+                        Choreographer.getInstance().removeFrameCallback(this);
+                        return;
+                    }
+                    mWt += 0.1f;
+                }
+                scaleZoom(mWt);
+                Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
+            }
+        };
+        Choreographer.getInstance().postFrameCallback(mZoomFrameCallback);
     }
 
     @Override
@@ -654,6 +728,7 @@ public class Camera1 extends CameraViewImpl {
                 } else {
                     mCamera.autoFocus(null);
                 }
+                mAf = 0;
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -717,13 +792,28 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public void setIsoAuto() {
+        if (mCameraParameters != null) {
+            mCameraParameters.set("iso", "auto");
+        }
+    }
+
+    @Override
     public boolean isManualAESupported() {
         return mCameraParameters.getMaxExposureCompensation() > 0;
     }
 
     @Override
     public Range<Integer> getAERange() {
+        if (mCameraParameters == null) {
+            return null;
+        }
         return new Range<>(mCameraParameters.getMinExposureCompensation(), mCameraParameters.getMaxExposureCompensation());
+    }
+
+    @Override
+    public float getAeStep() {
+        return mCameraParameters.getExposureCompensationStep();
     }
 
     @Override
@@ -745,16 +835,25 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public Range<Long> getSecRange() {
-        long lower = Long.parseLong(mCameraParameters.get("min-exposure-time"));
-        long uper = Long.parseLong(mCameraParameters.get("max-exposure-time"));
-        return new Range<>(lower, uper);
+        //camera1返回的时间单位为毫秒,需要转换为纳秒,已和camera2一致.
+        float min = Float.parseFloat(mCameraParameters.get("min-exposure-time"));
+        float max = Float.parseFloat(mCameraParameters.get("max-exposure-time"));
+        long lower = (long) (1000000 * min);
+        long upper = (long) (1000000 * max);
+        return new Range<>(lower, upper);
     }
 
     @Override
     public void setSecValue(long value) {
         mSec = value;
         DecimalFormat df = new DecimalFormat("0.000000");
-        String sec = df.format(value / 1000000f);
+        String sec;
+        if (CameraUtil.isOV()) {
+            //OV的手机,只需要将纳秒的sec值除了1000倍,即可达到要求.
+            sec = df.format(value / 1000f);
+        } else {
+            sec = df.format(value / 1000000f);
+        }
         mCameraParameters.set("manual-exposure-modes", "user-setting");
         mCameraParameters.set("exposure-time", sec);
     }
@@ -1133,7 +1232,7 @@ public class Camera1 extends CameraViewImpl {
         try {
             mCamera.setParameters(mCameraParameters);
         } catch (Exception e) {
-            e.printStackTrace();
+//            e.printStackTrace();
         }
     }
 

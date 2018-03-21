@@ -291,13 +291,19 @@ public class CameraView extends FrameLayout {
         if (!mImpl.start()) {
             //store the state ,and restore this state after fall back o Camera1
             Parcelable state = onSaveInstanceState();
-//            mPreview = createPreviewImpl(getContext());
             mImpl = new Camera1(mCallbacks, mPreview, getContext());
             onRestoreInstanceState(state);
             mImpl.start();
         }
-        mFocusMarkerLayout.setMaxAeRange(mImpl.getAERange().getUpper());
-        mFocusMarkerLayout.setImpl(mImpl);
+        post(new Runnable() {
+            @Override
+            public void run() {
+                if (mImpl.getAERange() != null) {
+                    mFocusMarkerLayout.setMaxAeRange(mImpl.getAERange().getUpper());
+                }
+                mFocusMarkerLayout.setImpl(mImpl);
+            }
+        });
     }
 
     /**
@@ -612,6 +618,10 @@ public class CameraView extends FrameLayout {
         return mImpl.getSupportedVideoSize();
     }
 
+    public float getFpsWithSize(android.util.Size size) {
+        return mImpl.getFpsWithSize(size);
+    }
+
     public float getMaxZoom() {
         return mImpl.getMaxZoom();
     }
@@ -630,6 +640,14 @@ public class CameraView extends FrameLayout {
 
     public void zoomOut() {
         mImpl.zoomOut();
+    }
+
+    public void focusNear() {
+        mImpl.foucsNear();
+    }
+
+    public void focusFar() {
+        mImpl.focusFar();
     }
 
     public void setWTlen(float value) {
@@ -673,6 +691,10 @@ public class CameraView extends FrameLayout {
         return mImpl.isSupportedManualMode();
     }
 
+    public void setIsoAuto() {
+        mImpl.setIsoAuto();
+    }
+
     public void setManualMode(boolean manual) {
         mImpl.setManualMode(manual);
     }
@@ -687,6 +709,10 @@ public class CameraView extends FrameLayout {
 
     public void setAEValue(int value) {
         mImpl.setAEValue(value);
+    }
+
+    public float getAeStep() {
+        return mImpl.getAeStep();
     }
 
     public boolean isManualSecSupported() {
@@ -741,6 +767,39 @@ public class CameraView extends FrameLayout {
         return mImpl.getWt();
     }
 
+    /**
+     * zoomRatio不同于WT.
+     * WT表示的是,当前的缩放系数在总缩放范围的比例.比如,在PIXEL XL手机中.
+     * 缩放的Zoom的范围为[1,4],如果此时WT的值为3.9,即表示在倒数第二个范围,
+     * 此时的缩放比例zoomRatio为放大3.9倍(camera2中直接根据比例计算对应的rect范围,即与zoomRatio一致).
+     * 而在OPPO R9S手机中,缩放范围的Zoom为[1,8](已转换为与camera2一致的表示方法,用camera1的表示方法则是[0,90]),
+     * 此时,如果WT的值为7.9,也表示为倒数第二个范围值,但是,此时的缩放比例zoomRatio的不是7.9,因为要根据
+     * camera1自己的规则和给出的ZoomRatios数组来计算.经过计算,此时对应的缩放比例zoomRatio为
+     * {@link #getZoomRatios()}数组的倒数第二个item值(需要除以100,以小数表示,此例子中,该值为7.81).此时的
+     * zoomRatio则不一定与WT的值一致.
+     * 为了保持在外层调用一致的原则,特意添加此方法.
+     * @return 返回当前的缩放比例
+     */
+    public float getZoomRatio() {
+        return mImpl.getZoomRatio();
+    }
+
+    public void stopSmoothFocus() {
+        mImpl.stopSmoothFocus();
+    }
+
+    public void startSmoothFocus(float end, long duration) {
+        mImpl.startSmoothFocus(end, duration);
+    }
+
+    public void stopSmoothZoom() {
+        mImpl.stopSmoothZoom();
+    }
+
+    public void startSmoothZoom(float end, long duration) {
+        mImpl.startSmoothZoom(end, duration);
+    }
+
     public void setManualAFValue(float value) {
         mImpl.setAFValue(value);
     }
@@ -755,6 +814,22 @@ public class CameraView extends FrameLayout {
 
     public Bitmap getPreviewFrameBitmap(int width, int height) {
         return mPreview.getFrameBitmap(width, height);
+    }
+
+    public void setEnableScaleZoom(boolean enableScaleZoom) {
+        mFocusMarkerLayout.setEnableScaleZoom(enableScaleZoom);
+    }
+
+    public void increaseAe() {
+        mFocusMarkerLayout.increaseAe();
+    }
+
+    public void decreaseAe() {
+        mFocusMarkerLayout.decreaseAe();
+    }
+
+    public void showAeAdjust() {
+        mFocusMarkerLayout.showAeAdjust();
     }
 
     private static class CallbackBridge implements CameraViewImpl.Callback {
@@ -821,7 +896,7 @@ public class CameraView extends FrameLayout {
         @Override
         public void onVideoRecordStoped() {
             for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingStoped(cameraView.get());
+                callback.onVideoRecordingStopped(cameraView.get());
             }
         }
 
@@ -927,7 +1002,7 @@ public class CameraView extends FrameLayout {
 
         }
 
-        public void onVideoRecordingStoped(CameraView cameraView) {
+        public void onVideoRecordingStopped(CameraView cameraView) {
 
         }
 
