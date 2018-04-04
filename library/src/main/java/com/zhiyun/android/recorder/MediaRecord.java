@@ -183,6 +183,9 @@ public class MediaRecord {
         }
     }
 
+    public int getVolumeLevel() {
+        return mAudioEncoderCore.getVolumeLevel();
+    }
 
     public synchronized void start() {
         if(mMeidaMuxer == null) {

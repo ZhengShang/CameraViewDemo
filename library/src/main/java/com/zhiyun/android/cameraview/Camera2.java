@@ -603,6 +603,20 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
+    public boolean isTorch() {
+        //noinspection ConstantConditions
+        return mPreviewRequestBuilder != null && mPreviewRequestBuilder.get(CaptureRequest.FLASH_MODE) == CameraMetadata.FLASH_MODE_TORCH;
+    }
+
+    @Override
+    public void setTorch(boolean open) {
+        if (mPreviewRequestBuilder != null) {
+            mPreviewRequestBuilder.set(CaptureRequest.FLASH_MODE, open ? CameraMetadata.FLASH_MODE_TORCH : CameraMetadata.FLASH_MODE_OFF);
+            updatePreview();
+        }
+    }
+
+    @Override
     public void setPicSize(Size picSize) {
         mPicSize = picSize;
 
@@ -710,7 +724,7 @@ class Camera2 extends CameraViewImpl {
         }
         mManualWB = value;
 
-        RggbChannelVector rggbChannelVector = CameraUtil.kelvinToRgb(value);
+        RggbChannelVector rggbChannelVector = CameraUtil.colorTemperature(value);
         mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF);
         mPreviewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
         mPreviewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_GAINS, rggbChannelVector);
@@ -855,7 +869,9 @@ class Camera2 extends CameraViewImpl {
                             mMediaRecorder.start();
                         }
                         mCallback.onVideoRecordingStarted();
+                        addVolumeListener(useMediaRecord());
                     } catch (IllegalStateException e) {
+                        mIsRecordingVideo = false;
                         Log.e("Camera2", "onConfigured:  the camera is already in use by another app");
                         mCallback.onVideoRecordingFailed();
                         startCaptureSession();
@@ -1262,7 +1278,7 @@ class Camera2 extends CameraViewImpl {
             mCamera.createCaptureSession(Arrays.asList(surface, mImageReader.getSurface()),
                     mSessionCallback, mBackgroundHandler);
         } catch (Exception e) {
-            Log.e("Camera2", "startCaptureSession: [] = " + "OTHER ERROR");
+            Log.e("Camera2", "startCaptureSession: ", e);
             stop();
             start();
         }
@@ -1531,7 +1547,7 @@ class Camera2 extends CameraViewImpl {
                     mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
                     float scale = maxRect.width() / (float) newRect.width();
                     mWt = Math.round(scale * 10) / 10f;
-                    Log.e("Camera2", "doFrame: [smooth zoom, mWt] = "+ mWt);
+                    Log.d("Camera2", "doFrame: [smooth zoom, mWt] = " + mWt);
                     updatePreview();
                     Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
                 } else {

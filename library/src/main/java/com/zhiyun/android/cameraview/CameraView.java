@@ -24,6 +24,7 @@ import com.zhiyun.android.base.Size;
 import com.zhiyun.android.base.TextureViewPreview;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
+import com.zhiyun.android.listener.OnVolumeListener;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -349,6 +350,10 @@ public class CameraView extends FrameLayout {
         mImpl.addOnCaptureImageCallback(onCaptureImageCallback);
     }
 
+    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
+        mImpl.addOnVolumeListener(onVolumeListener);
+    }
+
     /**
      * @param adjustViewBounds {@code true} if you want the CameraView to adjust its bounds to
      *                         preserve the aspect ratio of camera.
@@ -471,6 +476,14 @@ public class CameraView extends FrameLayout {
     public int getFlash() {
         //noinspection WrongConstant
         return mImpl.getFlash();
+    }
+
+    public boolean isTorch() {
+        return mImpl.isTorch();
+    }
+
+    public void setTorch(boolean open) {
+        mImpl.setTorch(open);
     }
 
     /**

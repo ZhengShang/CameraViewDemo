@@ -307,6 +307,19 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public boolean isTorch() {
+        return mCameraParameters != null && Camera.Parameters.FLASH_MODE_TORCH.equals(mCameraParameters.getFlashMode());
+    }
+
+    @Override
+    public void setTorch(boolean open) {
+        if (mCameraParameters != null) {
+            mCameraParameters.setFlashMode(open ? Camera.Parameters.FLASH_MODE_TORCH : Camera.Parameters.FLASH_MODE_OFF);
+            setParameters();
+        }
+    }
+
+    @Override
     public void takePicture() {
         if (!isCameraOpened()) {
             Log.e("Camera1", "takePicture: Camera is not ready. Call start() before takePicture().");
@@ -333,6 +346,7 @@ public class Camera1 extends CameraViewImpl {
                     mMediaRecorder.start();
                     mCallback.onVideoRecordingStarted();
                     mIsRecordingVideo = true;
+                    addVolumeListener(false);
                 } else {
                     Log.e("Camera1", "startRecordingVideo: prepre failed");
                     mCallback.onVideoRecordingFailed();

@@ -14,6 +14,7 @@ import android.view.View;
 import com.zhiyun.android.cameraview.FocusMarkerLayout;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
+import com.zhiyun.android.listener.OnVolumeListener;
 import com.zhiyun.android.recorder.MediaRecord;
 
 import java.util.List;
@@ -27,6 +28,7 @@ public abstract class CameraViewImpl {
     protected final Callback mCallback;
     protected OnManualValueListener mOnManualValueListener;
     protected OnCaptureImageCallback mOnCaptureImageCallback;
+    protected OnVolumeListener mOnVolumeListener;
 
     protected final PreviewImpl mPreview;
     /**
@@ -86,16 +88,16 @@ public abstract class CameraViewImpl {
     /**
      * 视频码率
      */
-    protected int mBitrate = 10000000;
+    protected int mBitrate;
 
     /**
      * 捕获帧,可实现慢动作,延迟摄影等功能
      */
-    protected double mCaptureRate = 30;
+    protected double mCaptureRate;
     /**
      * 视频帧率
      */
-    protected int mFps = 30;
+    protected int mFps;
 
     protected int mAwbMode;
     protected int mAe;
@@ -119,6 +121,31 @@ public abstract class CameraViewImpl {
 
     public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
         mOnCaptureImageCallback = onCaptureImageCallback;
+    }
+
+    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
+        mOnVolumeListener = onVolumeListener;
+    }
+
+    protected void addVolumeListener(final boolean useMediaRecord) {
+        Choreographer.getInstance().postFrameCallback(new Choreographer.FrameCallback() {
+            @Override
+            public void doFrame(long frameTimeNanos) {
+                if (mIsRecordingVideo && !mMuteVideo) {
+                    double db;
+                    if (useMediaRecord) {
+                        db = mMediaRecord.getVolumeLevel();
+                    } else {
+                        db = 20 * Math.log10(mMediaRecorder.getMaxAmplitude() / 0.1f);
+                    }
+                    if (mOnVolumeListener != null) {
+                        mOnVolumeListener.onRecordingVolume((int) db);
+                        Choreographer.getInstance().postFrameCallbackDelayed(this, 500);
+                    }
+                }
+            }
+        });
+
     }
 
     public View getView() {
@@ -180,6 +207,10 @@ public abstract class CameraViewImpl {
     public abstract void setFlash(int flash);
 
     public abstract int getFlash();
+
+    public abstract boolean isTorch();
+
+    public abstract void setTorch(boolean open);
 
     public abstract void takePicture();
 
