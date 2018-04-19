@@ -15,6 +15,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
+import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
@@ -328,11 +329,44 @@ public class FocusMarkerLayout extends FrameLayout {
     }
 
     private class ScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
+        private float mCurrentRatio;
+        private float mMinRatio = 1.0f;
+        private float mMaxRatio ;
+        /** Next time zoom change should be sent to listener. */
+        private long mDelayZoomCallUntilMillis = 0;
+        /** Minimum time between calls to zoom listener. */
+        private static final long ZOOM_MINIMUM_WAIT_MILLIS = 33;
 
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
             if (mImpl.isManualWTSupported()) {
-                mImpl.gestureScaleZoom(detector.getScaleFactor());
+                if (mMaxRatio == 0) {
+                    mMaxRatio = mImpl.getMaxZoom();
+                }
+
+                final float sf = detector.getScaleFactor();
+                mCurrentRatio = (0.33f + mCurrentRatio) * sf * sf - 0.33f;
+                if (mCurrentRatio < mMinRatio) {
+                    mCurrentRatio = mMinRatio;
+                }
+                if (mCurrentRatio > mMaxRatio) {
+                    mCurrentRatio = mMaxRatio;
+                }
+
+                // Only call the listener with a certain frequency. This is
+                // necessary because these listeners will make repeated
+                // applySettings() calls into the portability layer, and doing this
+                // too often can back up its handler and result in visible lag in
+                // updating the zoom level and other controls.
+                long now = SystemClock.uptimeMillis();
+                if (now > mDelayZoomCallUntilMillis) {
+
+                    mImpl.scaleZoom(mCurrentRatio);
+                    mDelayZoomCallUntilMillis = now + ZOOM_MINIMUM_WAIT_MILLIS;
+                }
+
+
+//                mImpl.gestureScaleZoom(detector.getScaleFactor());
             }
             return true;
         }
