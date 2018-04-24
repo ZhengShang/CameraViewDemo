@@ -22,6 +22,7 @@ import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.base.TextureViewPreview;
+import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 import com.zhiyun.android.listener.OnVolumeListener;
@@ -346,6 +347,10 @@ public class CameraView extends FrameLayout {
         mImpl.addOnManualValueListener(onManualValueListener);
     }
 
+    public void addOnAeChangedListener(OnAeChangeListener onAeChangeListener) {
+        mImpl.addOnAeChangedListener(onAeChangeListener);
+    }
+
     public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
         mImpl.addOnCaptureImageCallback(onCaptureImageCallback);
     }
@@ -399,6 +404,8 @@ public class CameraView extends FrameLayout {
     public String getCameraId() {
         return mImpl.getCameraId();
     }
+
+
 
     /**
      * Gets all the aspect ratios supported by the current camera.
@@ -478,12 +485,12 @@ public class CameraView extends FrameLayout {
         return mImpl.getFlash();
     }
 
-    public boolean isTorch() {
-        return mImpl.isTorch();
-    }
-
     public void setTorch(boolean open) {
         mImpl.setTorch(open);
+    }
+
+    public boolean isTorch() {
+        return mImpl.isTorch();
     }
 
     /**

@@ -12,6 +12,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import com.zhiyun.android.cameraview.FocusMarkerLayout;
+import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 import com.zhiyun.android.listener.OnVolumeListener;
@@ -27,6 +28,7 @@ public abstract class CameraViewImpl {
 
     protected final Callback mCallback;
     protected OnManualValueListener mOnManualValueListener;
+    protected OnAeChangeListener mOnAeChangeListener;
     protected OnCaptureImageCallback mOnCaptureImageCallback;
     protected OnVolumeListener mOnVolumeListener;
 
@@ -75,7 +77,6 @@ public abstract class CameraViewImpl {
     protected static final int SOUND_ID_CLICK = 2;
     //    private SoundPool mSoundPool;
     private MediaActionSound mMediaActionSound;
-    private int[] mSoundId = new int[3];
     private boolean mPlaySound = Constants.DEFAULT_PLAY_SOUND;
 
     /**
@@ -119,6 +120,10 @@ public abstract class CameraViewImpl {
         mOnManualValueListener = onManualValueListener;
     }
 
+    public void addOnAeChangedListener(OnAeChangeListener onAeChangeListener) {
+        mOnAeChangeListener = onAeChangeListener;
+    }
+
     public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
         mOnCaptureImageCallback = onCaptureImageCallback;
     }
@@ -158,10 +163,6 @@ public abstract class CameraViewImpl {
     public abstract boolean start();
 
     public void stop() {
-//        if (mSoundPool != null) {
-//            mSoundPool.release();
-//            mSoundPool = null;
-//        }
         if (mMediaActionSound != null) {
             mMediaActionSound.release();
             mMediaActionSound = null;
@@ -208,9 +209,9 @@ public abstract class CameraViewImpl {
 
     public abstract int getFlash();
 
-    public abstract boolean isTorch();
-
     public abstract void setTorch(boolean open);
+
+    public abstract boolean isTorch();
 
     public abstract void takePicture();
 
@@ -559,23 +560,21 @@ public abstract class CameraViewImpl {
     }
 
     protected void loadAudio() {
-//        Context context = getView().getContext();
-//        mSoundPool = new SoundPool.Builder().build();
-//        mSoundId[SOUND_ID_START] = mSoundPool.load(context, R.raw.cam_start, 1);
-//        mSoundId[SOUND_ID_STOP] = mSoundPool.load(context, R.raw.cam_stop, 1);
-//        mSoundId[SOUND_ID_CLICK] = mSoundPool.load(context, R.raw.camera_click, 1);
-        mMediaActionSound = new MediaActionSound();
-        mMediaActionSound.load(MediaActionSound.SHUTTER_CLICK);
-        mMediaActionSound.load(MediaActionSound.START_VIDEO_RECORDING);
-        mMediaActionSound.load(MediaActionSound.STOP_VIDEO_RECORDING);
+        // 美图手机这里出现内部错误
+        try {
+            if (mMediaActionSound == null) {
+                mMediaActionSound = new MediaActionSound();
+                mMediaActionSound.load(MediaActionSound.SHUTTER_CLICK);
+                mMediaActionSound.load(MediaActionSound.START_VIDEO_RECORDING);
+                mMediaActionSound.load(MediaActionSound.STOP_VIDEO_RECORDING);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     protected void playSound(int soundId) {
-//        if (mPlaySound) {
-//            mSoundPool.play(mSoundId[soundId], 0.5f, 0.5f, 1, 0, 1);
-//        }
-
-        if (mPlaySound) {
+        if (mMediaActionSound != null && mPlaySound) {
             switch (soundId) {
                 case SOUND_ID_CLICK:
                     mMediaActionSound.play(MediaActionSound.SHUTTER_CLICK);

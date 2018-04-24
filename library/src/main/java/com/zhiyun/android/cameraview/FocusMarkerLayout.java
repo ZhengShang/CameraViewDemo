@@ -318,6 +318,9 @@ public class FocusMarkerLayout extends FrameLayout {
         if (mImpl == null) {
             return true;
         }
+        if (!mImpl.isCameraOpened()) {
+            return true;
+        }
         if (mImpl.isManualMode()) {
             return true;
         }
@@ -364,9 +367,6 @@ public class FocusMarkerLayout extends FrameLayout {
                     mImpl.scaleZoom(mCurrentRatio);
                     mDelayZoomCallUntilMillis = now + ZOOM_MINIMUM_WAIT_MILLIS;
                 }
-
-
-//                mImpl.gestureScaleZoom(detector.getScaleFactor());
             }
             return true;
         }

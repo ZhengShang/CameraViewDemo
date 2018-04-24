@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
+import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -161,6 +162,9 @@ class Camera2 extends CameraViewImpl {
         public void onPrecaptureRequired() {
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
             setState(STATE_PRECAPTURE);
+            if (mCaptureSession == null) {
+                return;
+            }
             try {
                 mCaptureSession.capture(mPreviewRequestBuilder.build(), this, mBackgroundHandler);
             } catch (CameraAccessException e) {
@@ -170,7 +174,10 @@ class Camera2 extends CameraViewImpl {
 
         @Override
         public void onReady() {
-            captureStillPicture();
+//            captureStillPicture();
+            //Lock af
+            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO);
+            updatePreview();
         }
 
         @Override
@@ -178,19 +185,25 @@ class Camera2 extends CameraViewImpl {
             //实时回调当前数据
 
             Integer iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
-            if (iso != null && mOnManualValueListener != null) {
-                mOnManualValueListener.onIsoChanged(iso);
+            if (iso != null) {
+                if (mOnManualValueListener != null) {
+                    mOnManualValueListener.onIsoChanged(iso);
+                }
             }
 
             Long sec = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-            if (sec != null && mOnManualValueListener != null) {
-                mOnManualValueListener.onSecChanged(sec);
+            if (sec != null) {
+                if (mOnManualValueListener != null) {
+                    mOnManualValueListener.onSecChanged(sec);
+                }
             }
 
             RggbChannelVector rggbChannelVector = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
-            if (rggbChannelVector != null && mOnManualValueListener != null) {
-                int temperature = CameraUtil.rgbToKelvin(rggbChannelVector);
-                mOnManualValueListener.onTemperatureChanged(temperature);
+            if (rggbChannelVector != null) {
+                if (mOnManualValueListener != null) {
+                    int temperature = CameraUtil.rgbToKelvin(rggbChannelVector);
+                    mOnManualValueListener.onTemperatureChanged(temperature);
+                }
             }
 
         }
@@ -572,10 +585,10 @@ class Camera2 extends CameraViewImpl {
 
     @Override
     public void setManualMode(boolean manual) {
+        mManualMode = manual;
         if (mPreviewRequestBuilder == null) {
             return;
         }
-        mManualMode = manual;
         if (manual) {
 //            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_OFF);
         } else {
@@ -603,17 +616,17 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
-    public boolean isTorch() {
-        //noinspection ConstantConditions
-        return mPreviewRequestBuilder != null && mPreviewRequestBuilder.get(CaptureRequest.FLASH_MODE) == CameraMetadata.FLASH_MODE_TORCH;
-    }
-
-    @Override
     public void setTorch(boolean open) {
         if (mPreviewRequestBuilder != null) {
             mPreviewRequestBuilder.set(CaptureRequest.FLASH_MODE, open ? CameraMetadata.FLASH_MODE_TORCH : CameraMetadata.FLASH_MODE_OFF);
             updatePreview();
         }
+    }
+
+    @Override
+    public boolean isTorch() {
+        //noinspection ConstantConditions
+        return mPreviewRequestBuilder != null && mPreviewRequestBuilder.get(CaptureRequest.FLASH_MODE) == CameraMetadata.FLASH_MODE_TORCH;
     }
 
     @Override
@@ -653,6 +666,9 @@ class Camera2 extends CameraViewImpl {
             return;
         }
         mAe = value;
+        if (mOnAeChangeListener != null) {
+            mOnAeChangeListener.onAeChanged(mAe);
+        }
 //        mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON);
         mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, value);
         updatePreview();
@@ -808,21 +824,13 @@ class Camera2 extends CameraViewImpl {
             return;
         }
         try {
-            if (useMediaRecord()) {
-                setUpMediaRecord();
-            } else {
-                setUpMediaRecorder();
-            }
-
+            setupVideoRecorder();
             mPreviewRequestBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT,
                     CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD);
-            mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
 
             //auto white-balance
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AWB_MODE, mAwbMode);
-            //录制视频时,不需要一直对焦
-            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO);
 
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_LOCK, mAeLock);
 
@@ -834,13 +842,13 @@ class Camera2 extends CameraViewImpl {
             List<Surface> surfaces = new ArrayList<>();
 
             // Set up Texture for the camera preview
-            surfaces.add(mPreview.getSurface());
-            mPreviewRequestBuilder.addTarget(mPreview.getSurface());
+            SurfaceTexture previewTexture = mPreview.getSurfaceTexture();
+            Surface previewSurface = new Surface(previewTexture);
+            surfaces.add(previewSurface);
+            mPreviewRequestBuilder.addTarget(previewSurface);
 
             // Set up Surface for the MediaRecorder
-            Surface recorderSurface = useMediaRecord() ?
-                    mMediaRecord.getSurface() : mMediaRecorder.getSurface();
-//            Surface recorderSurface = mMediaRecorder.getSurface();
+            Surface recorderSurface = getSurface();
             surfaces.add(recorderSurface);
             mPreviewRequestBuilder.addTarget(recorderSurface);
 
@@ -863,11 +871,9 @@ class Camera2 extends CameraViewImpl {
                     mIsRecordingVideo = true;
                     // Start recording
                     try {
-                        if (useMediaRecord()) {
-                            mMediaRecord.start();
-                        } else {
-                            mMediaRecorder.start();
-                        }
+                        //录制视频时,不需要一直对焦
+                        lockFocus();
+                        startVideoRecording();
                         mCallback.onVideoRecordingStarted();
                         addVolumeListener(useMediaRecord());
                     } catch (IllegalStateException e) {
@@ -998,12 +1004,13 @@ class Camera2 extends CameraViewImpl {
     }
 
     /**
-     * 三星设备，在不静音的情况下使用 {@link MediaRecord}
-     *
-     * @return
+     * 三星手机在7.0以下版本使用 {@link MediaRecorder} 录制视频会出现音视频时间戳不一致的情况！
+     * 在7.0以下且需要录音时使用 {@link MediaRecord}
+     * @return true 使用 {@link MediaRecord}
      */
     private boolean useMediaRecord() {
-        return "samsung".equals(Build.BRAND.toLowerCase()) && !mMuteVideo;
+        return "samsung".equals(Build.BRAND.toLowerCase()) && !mMuteVideo
+                && Build.VERSION.SDK_INT <= Build.VERSION_CODES.M;
     }
 
     private void setUpMediaRecorder() throws IOException {
@@ -1076,6 +1083,26 @@ class Camera2 extends CameraViewImpl {
                 360) % 360);
 
         mMediaRecord.prepare();
+    }
+
+    private void setupVideoRecorder() throws IOException {
+        if (useMediaRecord()) {
+            setUpMediaRecord();
+        } else {
+            setUpMediaRecorder();
+        }
+    }
+
+    private void startVideoRecording() {
+        if (useMediaRecord()) {
+            mMediaRecord.start();
+        } else {
+            mMediaRecorder.start();
+        }
+    }
+
+    private Surface getSurface() {
+        return useMediaRecord() ? mMediaRecord.getSurface() : mMediaRecorder.getSurface();
     }
 
     @Override
@@ -1301,6 +1328,11 @@ class Camera2 extends CameraViewImpl {
             }
         } else {
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+            //在非自动对焦下,第一次直接让其对焦完成,并锁定.
+            //主要用于使用跟踪时,需要锁定画面.
+            //ps,如果不手动锁定focus,而是调用setAutoFocus(false),则某些手机(三星等)画面会变得模糊.
+            //故此需要次方法.
+            lockFocus();
         }
     }
 
@@ -1440,6 +1472,9 @@ class Camera2 extends CameraViewImpl {
     @SuppressWarnings("ConstantConditions")
     @Override
     public float getMaxZoom() {
+        if (mCameraCharacteristics == null) {
+            return 1;
+        }
         return mCameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
     }
 
@@ -1459,16 +1494,7 @@ class Camera2 extends CameraViewImpl {
         mZoomRatio = scale;
 
         Rect rect = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-
-        int halfWidth = (int) (rect.width() / scale / 2 + 0.5f);
-        int halfHeight = (int) (rect.height() / scale / 2 + 0.5f);
-
-        int l = rect.width() / 2 - halfWidth;
-        int t = rect.height() / 2 - halfHeight;
-        int r = rect.width() / 2 + halfWidth;
-        int b = rect.height() / 2 + halfHeight;
-
-        newRect = new Rect(l, t, r, b);
+        newRect = CameraUtil.getScaledRect(rect, scale);
 
         //新的范围比最大值还大,不可以设置,否则手机直接重启.
         if (rect.contains(newRect)) {
@@ -1561,11 +1587,14 @@ class Camera2 extends CameraViewImpl {
     }
 
     /**
-     * Locks the focus as the first step for a still image capture.
+     * Locks the focus
      */
     private void lockFocus() {
-//        mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-//                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+        if (mCaptureSession == null) {
+            return;
+        }
+        mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
         mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,
                 CaptureRequest.CONTROL_AF_TRIGGER_START);
         try {
@@ -1573,6 +1602,8 @@ class Camera2 extends CameraViewImpl {
             mCaptureSession.capture(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
         } catch (CameraAccessException e) {
             Log.e(TAG, "Failed to lock focus.", e);
+        } catch (IllegalStateException e2) {
+            Log.d("Camera2", "lock failed");
         }
     }
 

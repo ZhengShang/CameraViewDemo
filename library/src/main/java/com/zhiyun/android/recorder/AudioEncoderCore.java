@@ -119,9 +119,9 @@ public class AudioEncoderCore {
                         ByteBuffer inputBuffer = mEncoder.getInputBuffer(inputBufId);
                         int readLen = mRecord.read(inputBuffer, mBufferSize);
                         readLen = readLen < 0 ? 0 : readLen;
+                        readAudioBuffer(inputBuffer, readLen);
                         long timeUs = System.nanoTime() / 1000;
                         mEncoder.queueInputBuffer(inputBufId, 0, readLen, timeUs, 0);
-                        readAudioBuffer();
                     }
                 }
 
@@ -162,28 +162,27 @@ public class AudioEncoderCore {
 
 
     public int getVolumeLevel() {
-        return (int) lastLevel;
+        return (int) (10 * lastLevel);
     }
 
     /**
      * Functionality that gets the sound level out of the sample
      */
-    private void readAudioBuffer() {
-
+    private void readAudioBuffer(ByteBuffer buffer, int len) {
         try {
-            short[] buffer = new short[mBufferSize];
-
-            int bufferReadResult = 1;
+            buffer.mark();
+            byte[] bytes = new byte[len];
+            buffer.get(bytes, 0, len);
+            buffer.reset();
 
             if (mRecord != null) {
 
                 // Sense the voice...
-                bufferReadResult = mRecord.read(buffer, 0, mBufferSize);
                 double sumLevel = 0;
-                for (int i = 0; i < bufferReadResult; i++) {
-                    sumLevel += buffer[i];
+                for (int i = 0; i < len; i++) {
+                    sumLevel += bytes[i];
                 }
-                lastLevel = Math.abs((sumLevel / bufferReadResult));
+                lastLevel = Math.abs((sumLevel / len));
             }
 
         } catch (Exception e) {

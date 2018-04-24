@@ -1,6 +1,7 @@
 package com.zhiyun.android.base;
 
 import android.graphics.Bitmap;
+import android.graphics.SurfaceTexture;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.View;
@@ -43,7 +44,7 @@ public abstract class PreviewImpl {
         return null;
     }
 
-    public Object getSurfaceTexture() {
+    public SurfaceTexture getSurfaceTexture() {
         return null;
     }
 

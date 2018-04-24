@@ -228,8 +228,20 @@ public class Camera1 extends CameraViewImpl {
         }
         List<android.util.Size> size = new ArrayList<>();
         for (Camera.Size videoSize : supportedVideoSizes) {
-            size.add(new android.util.Size(videoSize.width, videoSize.height));
+            android.util.Size size1 = new android.util.Size(videoSize.width, videoSize.height);
+            //去重.
+            //vivo x21A手机会出现2次4k的选项.
+            if (!size.contains(size1)) {
+                size.add(size1);
+            }
         }
+        //排序
+        Collections.sort(size, new Comparator<android.util.Size>() {
+            @Override
+            public int compare(android.util.Size o1, android.util.Size o2) {
+                return (o1.getWidth() + o1.getHeight()) - (o2.getWidth() + o2.getHeight());
+            }
+        });
         return size;
     }
 
@@ -307,11 +319,6 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public boolean isTorch() {
-        return mCameraParameters != null && Camera.Parameters.FLASH_MODE_TORCH.equals(mCameraParameters.getFlashMode());
-    }
-
-    @Override
     public void setTorch(boolean open) {
         if (mCameraParameters != null) {
             mCameraParameters.setFlashMode(open ? Camera.Parameters.FLASH_MODE_TORCH : Camera.Parameters.FLASH_MODE_OFF);
@@ -320,21 +327,31 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public boolean isTorch() {
+        return mCameraParameters != null && Camera.Parameters.FLASH_MODE_TORCH.equals(mCameraParameters.getFlashMode());
+    }
+
+    @Override
     public void takePicture() {
         if (!isCameraOpened()) {
             Log.e("Camera1", "takePicture: Camera is not ready. Call start() before takePicture().");
             return;
         }
-        if (getAutoFocus()) {
-            mCamera.cancelAutoFocus();
-            mCamera.autoFocus(new Camera.AutoFocusCallback() {
-                @Override
-                public void onAutoFocus(boolean success, Camera camera) {
-                    takePictureInternal();
-                }
-            });
-        } else {
-            takePictureInternal();
+        try {
+            if (getAutoFocus()) {
+                //某些手机,如(MX2)等,cancelAutoFocus有概率failed.所以用了try catch
+                mCamera.cancelAutoFocus();
+                mCamera.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean success, Camera camera) {
+                        takePictureInternal();
+                    }
+                });
+            } else {
+                takePictureInternal();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -513,8 +530,12 @@ public class Camera1 extends CameraViewImpl {
                             sendTakePhotoAction();
                         }
                         playSound(SOUND_ID_CLICK);
-                        camera.cancelAutoFocus();
-                        camera.startPreview();
+                        try {
+                            camera.cancelAutoFocus();
+                            camera.startPreview();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
                 });
             } catch (Exception e) {
@@ -792,6 +813,7 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void setManualMode(boolean manual) {
+        mManualMode = manual;
         if (manual) {
 
         } else {
@@ -837,6 +859,12 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void setAEValue(int value) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        if (mOnAeChangeListener != null) {
+            mOnAeChangeListener.onAeChanged(value);
+        }
         mCameraParameters.setExposureCompensation(value);
         setParameters();
     }
@@ -897,6 +925,10 @@ public class Camera1 extends CameraViewImpl {
     @Override
     public int getIso() {
         String isoStr = mCameraParameters.get("iso");
+        // isoStr 有出现空的情况
+        if (TextUtils.isEmpty(isoStr)) {
+            return 0;
+        }
         Pattern p = Pattern.compile("\\d+");
         Matcher m = p.matcher(isoStr);
         if (m.find()) {

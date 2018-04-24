@@ -358,10 +358,10 @@ public class CameraUtil {
         int halfWidth = (int) (rect.width() / scale / 2 + 0.5f);
         int halfHeight = (int) (rect.height() / scale / 2 + 0.5f);
 
-        int l = rect.left + rect.width() / 2 - halfWidth;
-        int t = rect.top + rect.height() / 2 - halfHeight;
-        int r = rect.left + rect.width() / 2 + halfWidth;
-        int b = rect.top + rect.height() / 2 + halfHeight;
+        int l = rect.width() / 2 - halfWidth;
+        int t = rect.height() / 2 - halfHeight;
+        int r = rect.width() / 2 + halfWidth;
+        int b = rect.height() / 2 + halfHeight;
 
         return new Rect(l, t, r, b);
     }
