@@ -37,6 +37,7 @@ public interface Constants {
     int GRID_GRID = 1;//网格线 网格
     int GRID_GRID_AND_DIAGONAL = 2;//网格线 网格+对角线
     int GRID_CENTER_POINT = 3; //网格线 中心点
+    int GRID_DIAGONAL = 4;//对角线
 
     int LANDSCAPE_90 = 90;
     int LANDSCAPE_270 = 270;
@@ -50,4 +51,6 @@ public interface Constants {
     int AWB_MODE_CLOUDY_DAYLIGHT = 6;
     int AWB_MODE_TWILIGHT = 7;
     int AWB_MODE_SHADE = 8;
+    //手机剩余容量低于200M则不可以录制.
+    long LOW_STORAGE_THRESHOLD_BYTES = 200;
 }

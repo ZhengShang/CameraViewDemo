@@ -103,6 +103,10 @@ public class CameraView extends FrameLayout {
      */
     public static final int GRID_CENTER_POINT = Constants.GRID_CENTER_POINT;
     /**
+     * 网格线 对角线
+     */
+    public static final int GRID_DIAGONAL = Constants.GRID_DIAGONAL;
+    /**
      * 显示对焦框、网格线的layout
      */
     private FocusMarkerLayout mFocusMarkerLayout;
@@ -116,6 +120,7 @@ public class CameraView extends FrameLayout {
     private final DisplayOrientationDetector mDisplayOrientationDetector;
 
     private PreviewImpl mPreview;
+    private int mStartApi;
 
     public CameraView(Context context) {
         this(context, null);
@@ -136,11 +141,18 @@ public class CameraView extends FrameLayout {
         // Internal setup
         mPreview = createPreviewImpl(context);
         mCallbacks = new CallbackBridge(this);
-        mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext());
         // Attributes
         final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CameraView,
                 defStyleAttr,
                 R.style.Widget_CameraView);
+        mStartApi = a.getInt(R.styleable.CameraView_cameraApi, 0);
+        if (mStartApi == 0) {
+            mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext(), false);
+        } else if (mStartApi == 1) {
+            mImpl = new Camera1(mCallbacks, mPreview, context.getApplicationContext());
+        } else {
+            mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext(), true);
+        }
         mAdjustViewBounds = a.getBoolean(R.styleable.CameraView_android_adjustViewBounds, false);
         setFacing(a.getInt(R.styleable.CameraView_facing, FACING_BACK));
         String aspectRatio = a.getString(R.styleable.CameraView_aspectRatio);
@@ -290,11 +302,15 @@ public class CameraView extends FrameLayout {
      * {@link Activity#onResume()}.
      */
     public void start() {
-        if (!mImpl.start()) {
-            //store the state ,and restore this state after fall back o Camera1
-            Parcelable state = onSaveInstanceState();
-            mImpl = new Camera1(mCallbacks, mPreview, getContext());
-            onRestoreInstanceState(state);
+        if (mStartApi == 0) {
+            if (!mImpl.start()) {
+                //store the state ,and restore this state after fall back o Camera1
+                Parcelable state = onSaveInstanceState();
+                mImpl = new Camera1(mCallbacks, mPreview, getContext());
+                onRestoreInstanceState(state);
+                mImpl.start();
+            }
+        } else {
             mImpl.start();
         }
         post(new Runnable() {
@@ -513,6 +529,10 @@ public class CameraView extends FrameLayout {
 
     public double getCaptureRate() {
         return mImpl.getCaptureRate();
+    }
+
+    public long getAvailableSpace() {
+        return mImpl.getAvailableSpace();
     }
 
     /**
@@ -808,16 +828,16 @@ public class CameraView extends FrameLayout {
         mImpl.stopSmoothFocus();
     }
 
-    public void startSmoothFocus(float end, long duration) {
-        mImpl.startSmoothFocus(end, duration);
+    public void startSmoothFocus(float start, float end, long duration) {
+        mImpl.startSmoothFocus(start, end, duration);
     }
 
     public void stopSmoothZoom() {
         mImpl.stopSmoothZoom();
     }
 
-    public void startSmoothZoom(float end, long duration) {
-        mImpl.startSmoothZoom(end, duration);
+    public void startSmoothZoom(float start, float end, long duration) {
+        mImpl.startSmoothZoom(start, end, duration);
     }
 
     public void setManualAFValue(float value) {

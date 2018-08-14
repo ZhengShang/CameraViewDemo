@@ -74,4 +74,26 @@ public class Size implements Comparable<Size> {
             return CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
         }
     }
+
+    public int getRecommendBitRateFromCamcorder(int cameraId) {
+        if (mWidth == 720 && mHeight == 480) {
+            return getBitrate(cameraId, CamcorderProfile.QUALITY_480P);
+        } else if (mWidth == 1280 && mHeight == 720) {
+            return getBitrate(cameraId, CamcorderProfile.QUALITY_720P);
+        } else if (mWidth == 1920 && mHeight == 1080) {
+            return getBitrate(cameraId, CamcorderProfile.QUALITY_1080P);
+        } else if (mWidth == 3840 && mHeight == 2160) {
+            return getBitrate(cameraId, CamcorderProfile.QUALITY_2160P);
+        } else {
+            return getBitrate(cameraId, CamcorderProfile.QUALITY_720P);
+        }
+    }
+
+    private int getBitrate(int cameraId, int quality) {
+        if (CamcorderProfile.hasProfile(cameraId, quality)) {
+            return CamcorderProfile.get(cameraId, quality).videoBitRate;
+        } else {
+            return 7000000;
+        }
+    }
 }

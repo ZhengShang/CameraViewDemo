@@ -2,8 +2,7 @@ package com.zhiyun.android.cameraview;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.animation.ArgbEvaluator;
-import android.animation.ValueAnimator;
+import android.animation.ObjectAnimator;
 import android.annotation.TargetApi;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -27,13 +26,13 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
-import android.view.animation.AccelerateInterpolator;
 import android.widget.FrameLayout;
 
 import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.util.CameraUtil;
 
 import static com.zhiyun.android.cameraview.CameraView.GRID_CENTER_POINT;
+import static com.zhiyun.android.cameraview.CameraView.GRID_DIAGONAL;
 import static com.zhiyun.android.cameraview.CameraView.GRID_GRID;
 import static com.zhiyun.android.cameraview.CameraView.GRID_GRID_AND_DIAGONAL;
 import static com.zhiyun.android.cameraview.CameraView.GRID_NONE;
@@ -51,7 +50,6 @@ public class FocusMarkerLayout extends FrameLayout {
     private Paint mPaint;
     private int mGridType;
     private Bitmap mCenterBitmap;
-    private ArgbEvaluator argbEvaluator = new ArgbEvaluator();
 
     private ScaleGestureDetector mScaleGestureDetector;
     private GestureDetector mGestureDetector;
@@ -165,25 +163,8 @@ public class FocusMarkerLayout extends FrameLayout {
      * 作为拍摄照片完成时的屏幕闪烁白色动画
      */
     private void capture() {
-        ValueAnimator animator = ValueAnimator.ofFloat(0, 1f);
-        animator.setDuration(200);
-        animator.setInterpolator(new AccelerateInterpolator());
-        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                final float fraction = (float) animation.getAnimatedValue();
-
-                post(new Runnable() {
-                    @Override
-                    public void run() {
-                        setBackgroundColor(
-                                (Integer) argbEvaluator.evaluate(fraction,
-                                        Color.WHITE,
-                                        Color.TRANSPARENT));
-                    }
-                });
-            }
-        });
+        ObjectAnimator animator = ObjectAnimator.ofArgb(
+                this, "BackgroundColor", Color.WHITE, Color.TRANSPARENT);
         animator.start();
     }
 
@@ -261,6 +242,11 @@ public class FocusMarkerLayout extends FrameLayout {
                         getWidth() / 2 - mCenterBitmap.getWidth() / 2,
                         getHeight() / 2 - mCenterBitmap.getHeight() / 2,
                         mPaint);
+                break;
+            case GRID_DIAGONAL:
+                //对角线
+                canvas.drawLine(0, 0, getWidth(), getHeight(), mPaint);
+                canvas.drawLine(getWidth(), 0, 0, getHeight(), mPaint);
                 break;
         }
     }

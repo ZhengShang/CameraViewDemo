@@ -2,11 +2,13 @@ package com.zhiyun.android.cameraview;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.media.MediaRecorder;
 import android.os.Build;
+import android.preference.PreferenceManager;
 import android.support.v4.util.SparseArrayCompat;
 import android.text.TextUtils;
 import android.util.Log;
@@ -15,6 +17,8 @@ import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.zhiyun.android.base.AspectRatio;
 import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.base.Constants;
@@ -24,6 +28,7 @@ import com.zhiyun.android.base.SizeMap;
 import com.zhiyun.android.util.CameraUtil;
 
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,7 +40,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static android.hardware.Camera.Parameters.WHITE_BALANCE_INCANDESCENT;
 import static com.zhiyun.android.base.Constants.AWB_MODE_AUTO;
 import static com.zhiyun.android.base.Constants.AWB_MODE_CLOUDY_DAYLIGHT;
 import static com.zhiyun.android.base.Constants.AWB_MODE_DAYLIGHT;
@@ -64,6 +68,8 @@ public class Camera1 extends CameraViewImpl {
         FLASH_MODES.put(Constants.FLASH_RED_EYE, Camera.Parameters.FLASH_MODE_RED_EYE);
     }
 
+    private Context mContext;
+
     private int mCameraId;
 
     private final AtomicBoolean isPictureCaptureInProgress = new AtomicBoolean(false);
@@ -90,13 +96,12 @@ public class Camera1 extends CameraViewImpl {
 
     private int mDisplayOrientation;
 
-    private int mPhoneOrientation;
-
     private final Object mCameraLock = new Object();
     private Choreographer.FrameCallback mZoomFrameCallback;
 
     Camera1(Callback callback, PreviewImpl preview, Context context) {
         super(callback, preview);
+        mContext = context;
         preview.setCallback(new PreviewImpl.Callback() {
             @Override
             public void onSurfaceChanged() {
@@ -127,7 +132,11 @@ public class Camera1 extends CameraViewImpl {
     @Override
     public void stop() {
         super.stop();
-
+        if (mIsRecordingVideo) {
+            mIsRecordingVideo = false;
+            mCallback.onVideoRecordStoped();
+        }
+        releaseMediaRecorder();
         if (mCamera != null) {
             mCamera.stopPreview();
         }
@@ -235,6 +244,14 @@ public class Camera1 extends CameraViewImpl {
                 size.add(size1);
             }
         }
+
+        // 使用白名单的方式添加4K支持
+        // 需要等市场反馈支持良好后开放
+        // android.util.Size size4k = new android.util.Size(3840, 2160);
+        // if (Whitelist4k.isWhitelist() && !size.contains(size4k)) {
+        //     size.add(size4k);
+        // }
+
         //排序
         Collections.sort(size, new Comparator<android.util.Size>() {
             @Override
@@ -245,17 +262,72 @@ public class Camera1 extends CameraViewImpl {
         return size;
     }
 
+    private void saveVideosInSp() {
+        if (mCamera == null) {
+            return;
+        }
+
+        boolean allSaved = false;
+
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+
+        for (int i = 0, count = Camera.getNumberOfCameras(); i < count; i++) {
+            if (sp.contains(String.valueOf(i))) {
+                allSaved = true;
+                break;
+            }
+        }
+
+        if (allSaved) {
+            //Already put in sp.
+            return;
+        }
+
+        SharedPreferences.Editor edit = sp.edit();
+
+        for (int i = 0, count = Camera.getNumberOfCameras(); i < count; i++) {
+            mCamera.release();
+            mCamera = Camera.open(i);
+            List<Camera.Size> cameraSizes = mCamera.getParameters().getSupportedVideoSizes();
+            if (cameraSizes == null) {
+                continue;
+            }
+            Type listType = new TypeToken<List<android.util.Size>>() {
+            }.getType();
+            List<android.util.Size> utilSizes = new ArrayList<>();
+            for (Camera.Size size : cameraSizes) {
+                utilSizes.add(new android.util.Size(size.width, size.height));
+            }
+            String key = String.valueOf(i);
+            String value = new Gson().toJson(utilSizes, listType);
+            edit.putString(key, value).apply();
+        }
+        openCamera();
+    }
+
     @Override
     public int[] getSupportAWBModes() {
         List<String> whiteBalance = mCameraParameters.getSupportedWhiteBalance();
         if (whiteBalance == null) {
             return new int[0];
         }
-        if (whiteBalance.contains(WHITE_BALANCE_INCANDESCENT)) {
-            //返回2个元素的int数组,代表支持自动白平衡模式
-            return new int[2];
+        List<Integer> modes = new ArrayList<>();
+        for (String s : whiteBalance) {
+            if (TextUtils.equals(s, Camera.Parameters.WHITE_BALANCE_AUTO)) {
+                modes.add(Constants.AWB_MODE_AUTO);
+            } else if (TextUtils.equals(s, Camera.Parameters.WHITE_BALANCE_INCANDESCENT)) {
+                modes.add(Constants.AWB_MODE_INCANDESCENT);
+            } else if (TextUtils.equals(s, Camera.Parameters.WHITE_BALANCE_FLUORESCENT)) {
+                modes.add(Constants.AWB_MODE_FLUORESCENT);
+            } else if (TextUtils.equals(s, Camera.Parameters.WHITE_BALANCE_DAYLIGHT)) {
+                modes.add(Constants.AWB_MODE_DAYLIGHT);
+            } else if (TextUtils.equals(s, Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT)) {
+                modes.add(Constants.AWB_MODE_CLOUDY_DAYLIGHT);
+            }
         }
-        return new int[0];
+        int[] array = new int[modes.size()];
+        for (int i = 0; i < modes.size(); i++) array[i] = modes.get(i);
+        return array;
     }
 
     @Override
@@ -357,6 +429,9 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void startRecordingVideo() {
+        if (lowAvailableSpace()) {
+            return;
+        }
         synchronized (mCameraLock) {
             try {
                 if (prepareMediaRecorder()) {
@@ -364,15 +439,18 @@ public class Camera1 extends CameraViewImpl {
                     mCallback.onVideoRecordingStarted();
                     mIsRecordingVideo = true;
                     addVolumeListener(false);
+                    updateAvailableSpace();
                 } else {
                     Log.e("Camera1", "startRecordingVideo: prepre failed");
                     mCallback.onVideoRecordingFailed();
                     releaseMediaRecorder();
+                    mCamera.lock();
                 }
             } catch (IOException | RuntimeException e) {
                 Log.e("Camera1", "startRecordingVideo: failed = " + e.getMessage());
                 mCallback.onVideoRecordingFailed();
                 releaseMediaRecorder();
+                mCamera.lock();
             }
         }
     }
@@ -381,18 +459,24 @@ public class Camera1 extends CameraViewImpl {
     public void stopRecordingVideo() {
         synchronized (mCameraLock) {
             if (mIsRecordingVideo) {
-
                 try {
-                    mMediaRecorder.stop();
+                    if (mMediaRecorder != null) {
+                        mMediaRecorder.stop();
+                    }
                     mCallback.onVideoRecordStoped();
-                    playSound(SOUND_ID_STOP);
+//                    playSound(SOUND_ID_STOP);
                 } catch (RuntimeException e) {
                     Log.e("Camera1", "stopRecordingVideo: failed = " + e.getMessage());
                     mCallback.onVideoRecordingFailed();
                 }
 
+                //如果正在进行平滑af和wt,就停止
+                stopSmoothFocus();
+                stopSmoothZoom();
+
                 releaseMediaRecorder();
                 mIsRecordingVideo = false;
+                mCamera.lock();
             }
 
             // 小米手机出现录制视频后无法拍照或录像的问题
@@ -409,6 +493,9 @@ public class Camera1 extends CameraViewImpl {
     }
 
     private boolean prepareMediaRecorder() throws IOException {
+        if (mCamera == null) {
+            return false;
+        }
         synchronized (mCameraLock) {
             mCamera.unlock();
 
@@ -503,11 +590,6 @@ public class Camera1 extends CameraViewImpl {
         setParameters();
     }
 
-    @Override
-    public void setPhoneOrientation(int orientation) {
-        mPhoneOrientation = orientation;
-    }
-
     private void takePictureInternal() {
         if (!isPictureCaptureInProgress.getAndSet(true)) {
 
@@ -576,7 +658,14 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void setHdrMode(boolean hdr) {
-        mCameraParameters.setSceneMode(hdr ? Camera.Parameters.SCENE_MODE_HDR : Camera.Parameters.SCENE_MODE_AUTO);
+        List<String> supportedSceneModes = mCameraParameters.getSupportedSceneModes();
+        if (supportedSceneModes != null) {
+            if (hdr && supportedSceneModes.contains(Camera.Parameters.SCENE_MODE_HDR)) {
+                mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_HDR);
+            } else {
+                mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_AUTO);
+            }
+        }
     }
 
     @Override
@@ -663,11 +752,13 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public void startSmoothZoom(final float end, final long duration) {
+    public void startSmoothZoom(float start, final float end, final long duration) {
 
         // 2.0 ~ 3.0 2000ms
 
         stopSmoothZoom();
+
+        mWt = start;
 
         if (end == mWt) {
             return;
@@ -1025,12 +1116,12 @@ public class Camera1 extends CameraViewImpl {
         }
         try {
             mCamera = Camera.open(mCameraId);
+            mCameraParameters = mCamera.getParameters();
         } catch (Exception e) {
             Log.e("Camera1", "openCamera: failed = " + e.getMessage());
             mCallback.onCameraClosed();
             return;
         }
-        mCameraParameters = mCamera.getParameters();
         // Supported preview sizes
         mPreviewSizes.clear();
         for (Camera.Size size : mCameraParameters.getSupportedPreviewSizes()) {
@@ -1049,6 +1140,10 @@ public class Camera1 extends CameraViewImpl {
         mCamera.setDisplayOrientation(calcDisplayOrientation(mDisplayOrientation));
         mCallback.onCameraOpened();
         mCallback.onRequestBuilderCreate();
+
+        //保存摄像头的视频分辨率信息
+        saveVideosInSp();
+        mAvailableSpace = CameraUtil.getAvailableSpace();
     }
 
     private AspectRatio chooseAspectRatio() {

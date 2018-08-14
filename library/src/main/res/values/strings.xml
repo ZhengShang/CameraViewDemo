@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ae_af_lock">AE/AF LOCK</string>
+    <string name="spaceIsLow_content">Video recording is unavailable because there is not enough storage</string>
+    <string name="video_reach_size_limit">Video recording stops because there is not enough storage. </string>
 </resources>

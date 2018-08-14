@@ -1,7 +1,10 @@
 package com.zhiyun.android.cameraview;
 
+import android.animation.RectEvaluator;
+import android.animation.ValueAnimator;
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
@@ -26,15 +29,15 @@ import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.Range;
-import android.util.Rational;
 import android.util.SparseIntArray;
-import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.Surface;
 
+import com.google.gson.Gson;
 import com.zhiyun.android.base.AspectRatio;
 import com.zhiyun.android.base.CameraViewImpl;
 import com.zhiyun.android.base.Constants;
@@ -61,7 +64,6 @@ import static com.zhiyun.android.base.Constants.MANUAL_WB_LOWER;
 import static com.zhiyun.android.base.Constants.MANUAL_WB_UPER;
 import static com.zhiyun.android.base.Constants.ONE_SECOND;
 
-@SuppressWarnings("MissingPermission")
 @TargetApi(21)
 class Camera2 extends CameraViewImpl {
 
@@ -126,48 +128,18 @@ class Camera2 extends CameraViewImpl {
 
     };
 
-    private final CameraCaptureSession.StateCallback mSessionCallback
-            = new CameraCaptureSession.StateCallback() {
-
-        @Override
-        public void onConfigured(@NonNull CameraCaptureSession session) {
-            if (mCamera == null) {
-                return;
-            }
-            mCaptureSession = session;
-            updateAutoFocus();
-            updateFlash(mPreviewRequestBuilder);
-            mCallback.onRequestBuilderCreate();
-            setPreviewParamsToBuilder(mPreviewRequestBuilder);
-            updatePreview();
-        }
-
-        @Override
-        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-            Log.e(TAG, "Failed to configure capture session.");
-        }
-
-        @Override
-        public void onClosed(@NonNull CameraCaptureSession session) {
-            if (mCaptureSession != null && mCaptureSession.equals(session)) {
-                mCaptureSession = null;
-            }
-        }
-
-    };
-
     private PictureCaptureCallback mCaptureCallback = new PictureCaptureCallback() {
 
         @Override
         public void onPrecaptureRequired() {
-            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
-            setState(STATE_PRECAPTURE);
             if (mCaptureSession == null) {
                 return;
             }
+            mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+            setState(STATE_PRECAPTURE);
             try {
                 mCaptureSession.capture(mPreviewRequestBuilder.build(), this, mBackgroundHandler);
-            } catch (CameraAccessException e) {
+            } catch (Exception e) {
                 Log.e(TAG, "Failed to run precapture sequence.", e);
             }
         }
@@ -181,7 +153,7 @@ class Camera2 extends CameraViewImpl {
         }
 
         @Override
-        public void onResultCallback(CaptureResult result) {
+        public synchronized void onResultCallback(CaptureResult result) {
             //实时回调当前数据
 
             Integer iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
@@ -202,11 +174,48 @@ class Camera2 extends CameraViewImpl {
             if (rggbChannelVector != null) {
                 if (mOnManualValueListener != null) {
                     int temperature = CameraUtil.rgbToKelvin(rggbChannelVector);
-                    mOnManualValueListener.onTemperatureChanged(temperature);
+                    try {
+                        mOnManualValueListener.onTemperatureChanged(temperature);
+                    } catch (Exception e) {
+                        //加了判空不知为何还是有NPE
+                    }
                 }
             }
 
         }
+    };
+    private final CameraCaptureSession.StateCallback mSessionCallback
+            = new CameraCaptureSession.StateCallback() {
+
+        @Override
+        public void onConfigured(@NonNull CameraCaptureSession session) {
+            if (mCamera == null) {
+                return;
+            }
+            mCaptureSession = session;
+            updateAutoFocus();
+            updateFlash(mPreviewRequestBuilder);
+            mCallback.onRequestBuilderCreate();
+            setPreviewParamsToBuilder(mPreviewRequestBuilder);
+            updatePreview();
+
+            //保存摄像头的视频分辨率信息
+            saveVideosInSp();
+            mAvailableSpace = CameraUtil.getAvailableSpace();
+        }
+
+        @Override
+        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+            Log.e(TAG, "Failed to configure capture session.");
+        }
+
+        @Override
+        public void onClosed(@NonNull CameraCaptureSession session) {
+            if (mCaptureSession != null && mCaptureSession.equals(session)) {
+                mCaptureSession = null;
+            }
+        }
+
     };
 
     private final ImageReader.OnImageAvailableListener mOnImageAvailableListener
@@ -310,13 +319,15 @@ class Camera2 extends CameraViewImpl {
     private boolean mAeLock;
 
     private int mDisplayOrientation;
-    private int mPhoneOrientation;
     private Rect newRect;
-    private Choreographer.FrameCallback mZoomFrameCallback;
+    private boolean mForceOpen;
+    private RectEvaluator mRectEvaluator;
+    private ValueAnimator mSmoothZoomAnim;
 
-    Camera2(Callback callback, PreviewImpl preview, Context context) {
+    Camera2(Callback callback, PreviewImpl preview, Context context, boolean forceOpen) {
         super(callback, preview);
         this.mContext = context;
+        this.mForceOpen = forceOpen;
         mCameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         mPreview.setCallback(new PreviewImpl.Callback() {
             @Override
@@ -461,7 +472,6 @@ class Camera2 extends CameraViewImpl {
     public boolean setAspectRatio(AspectRatio ratio) {
         if (ratio == null || ratio.equals(mAspectRatio) ||
                 !mPreviewSizes.ratios().contains(ratio)) {
-            // TODO: Better error handling
             return false;
         }
         mAspectRatio = ratio;
@@ -502,6 +512,7 @@ class Camera2 extends CameraViewImpl {
         return mAutoFocus;
     }
 
+    @SuppressWarnings("PointlessBooleanExpression")
     @Override
     public boolean isFlashAvailable() {
         Boolean isFlashAvailable = mCameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
@@ -724,8 +735,13 @@ class Camera2 extends CameraViewImpl {
     public boolean isManualWBSupported() {
 //        int[] modes = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES);
 //        return Arrays.binarySearch(modes, CameraMetadata.CONTROL_AWB_MODE_OFF) != -1;
-        return CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_FULL == getCameraLevel()
-                || CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_3 == getCameraLevel();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_FULL == getCameraLevel()
+                    || CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_3 == getCameraLevel();
+        } else {
+            return CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_FULL == getCameraLevel();
+        }
     }
 
     @Override
@@ -754,8 +770,12 @@ class Camera2 extends CameraViewImpl {
         }
         int[] afModes = mCameraCharacteristics.get(
                 CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
-        Arrays.sort(afModes);
-        return Arrays.binarySearch(afModes, CameraMetadata.CONTROL_AF_MODE_OFF) != -1;
+        if (afModes != null) {
+            Arrays.sort(afModes);
+            return Arrays.binarySearch(afModes, CameraMetadata.CONTROL_AF_MODE_OFF) >= 0;
+        } else {
+            return false;
+        }
     }
 
     @Override
@@ -778,7 +798,8 @@ class Camera2 extends CameraViewImpl {
     @Override
     public boolean isManualControlAF() {
         try {
-            return mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AF_MODE) == CameraMetadata.CONTROL_AF_MODE_OFF;
+            Integer afMode = mPreviewRequestBuilder.get(CaptureRequest.CONTROL_AF_MODE);
+            return afMode != null && afMode == CameraMetadata.CONTROL_AF_MODE_OFF;
         } catch (Exception e) {
             return false;
         }
@@ -820,7 +841,10 @@ class Camera2 extends CameraViewImpl {
 
     @Override
     public void startRecordingVideo() {
-        if (null == mCamera || !mPreview.isReady() || null == mPreviewSizes) {
+        if (null == mCamera || !mPreview.isReady()) {
+            return;
+        }
+        if (lowAvailableSpace()) {
             return;
         }
         try {
@@ -876,6 +900,7 @@ class Camera2 extends CameraViewImpl {
                         startVideoRecording();
                         mCallback.onVideoRecordingStarted();
                         addVolumeListener(useMediaRecord());
+                        updateAvailableSpace();
                     } catch (IllegalStateException e) {
                         mIsRecordingVideo = false;
                         Log.e("Camera2", "onConfigured:  the camera is already in use by another app");
@@ -987,6 +1012,10 @@ class Camera2 extends CameraViewImpl {
             // Stop recording
             releaseMediaRecorder();
 
+            //如果正在进行平滑af和wt,就停止
+            stopSmoothFocus();
+            stopSmoothZoom();
+
             playSound(SOUND_ID_STOP);
 
             mCallback.onVideoRecordStoped();
@@ -1004,13 +1033,13 @@ class Camera2 extends CameraViewImpl {
     }
 
     /**
-     * 三星手机在7.0以下版本使用 {@link MediaRecorder} 录制视频会出现音视频时间戳不一致的情况！
-     * 在7.0以下且需要录音时使用 {@link MediaRecord}
+     * 三星手机在8.0以下版本使用 {@link MediaRecorder} 录制视频会出现音视频时间戳不一致的情况！
+     * 在8.0以下且需要录音时使用 {@link MediaRecord}
      * @return true 使用 {@link MediaRecord}
      */
     private boolean useMediaRecord() {
-        return "samsung".equals(Build.BRAND.toLowerCase()) && !mMuteVideo
-                && Build.VERSION.SDK_INT <= Build.VERSION_CODES.M;
+        boolean isOreo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+        return !isOreo && !mMuteVideo && "samsung".equals(Build.BRAND.toLowerCase());
     }
 
     private void setUpMediaRecorder() throws IOException {
@@ -1054,8 +1083,6 @@ class Camera2 extends CameraViewImpl {
 
     /**
      * 仍然为过渡方案，等待自己实现 慢动作和延时摄影时移除系统的 MediaRecorder
-     *
-     * @throws IOException
      */
     private void setUpMediaRecord() throws IOException {
         mMediaRecord = new MediaRecord();
@@ -1106,11 +1133,6 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
-    public void setPhoneOrientation(int orientation) {
-        mPhoneOrientation = orientation;
-    }
-
-    @Override
     public void setDisplayOrientation(int displayOrientation) {
         mDisplayOrientation = displayOrientation;
         mPreview.setDisplayOrientation(mDisplayOrientation);
@@ -1150,8 +1172,11 @@ class Camera2 extends CameraViewImpl {
             mCameraId = ids[0];
             mCameraCharacteristics = mCameraManager.getCameraCharacteristics(mCameraId);
             Integer level = mCameraCharacteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-            if ((level == null) ||
-                    level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY) {
+            if (level == null) {
+                return false;
+            }
+            boolean isLegacy = level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY;
+            if (isLegacy && !mForceOpen) {
                 return false;
             }
             Integer internal = mCameraCharacteristics.get(CameraCharacteristics.LENS_FACING);
@@ -1173,6 +1198,45 @@ class Camera2 extends CameraViewImpl {
             return false;
         }
     }
+
+    private void saveVideosInSp() {
+        if (mCamera == null || mCameraManager == null) {
+            return;
+        }
+
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
+
+        if (sp.contains("0") && sp.contains("1")) {
+            //Already put in sp.
+            return;
+        }
+
+        SharedPreferences.Editor edit = sp.edit();
+
+        try {
+            String[] ids = mCameraManager.getCameraIdList();
+            for (String id : ids) {
+                CameraCharacteristics characteristics = mCameraManager.getCameraCharacteristics(id);
+                Integer internal = characteristics.get(CameraCharacteristics.LENS_FACING);
+                if (internal == null) {
+                    continue;
+                }
+
+                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                if (map == null) {
+                    continue;
+                }
+                android.util.Size[] sizes = map.getOutputSizes(MediaRecorder.class);
+                String value = new Gson().toJson(sizes);
+                edit.putString(id, value);
+                edit.putString(id + "_info", map.toString());
+                edit.apply();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 
     /**
      * 初始化各项默认参数参数
@@ -1235,10 +1299,10 @@ class Camera2 extends CameraViewImpl {
         mSupportedVideoSize = mMap.getOutputSizes(MediaRecorder.class);
 
         int[] ois = mCameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION);
-        mOISEnable = ois != null && Arrays.binarySearch(ois, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) != -1;
+        mOISEnable = ois != null && Arrays.binarySearch(ois, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) >= 0;
 
         int[] vsm = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES);
-        mVSMEnable = vsm != null && Arrays.binarySearch(vsm, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) != -1;
+        mVSMEnable = vsm != null && Arrays.binarySearch(vsm, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) >= 0;
     }
 
     protected void collectPictureSizes(SizeMap sizes, StreamConfigurationMap map) {
@@ -1247,6 +1311,7 @@ class Camera2 extends CameraViewImpl {
         }
     }
 
+    @SuppressWarnings("ConstantConditions")
     private int getCameraLevel() {
         return mCameraCharacteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
     }
@@ -1288,7 +1353,7 @@ class Camera2 extends CameraViewImpl {
     /**
      * <p>Starts a capture session for camera preview.</p>
      * <p>This rewrites {@link #mPreviewRequestBuilder}.</p>
-     * <p>The result will be continuously processed in {@link #mSessionCallback}.</p>
+     * <p>The result will be continuously processed in {@link # mSessionCallback}.</p>
      */
     private void startCaptureSession() {
         if (!isCameraOpened() || !mPreview.isReady() || mImageReader == null) {
@@ -1417,7 +1482,8 @@ class Camera2 extends CameraViewImpl {
     }
 
     private boolean isMeteringAreaAFSupported() {
-        return mCameraCharacteristics.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF) >= 1;
+        Integer afRegions = mCameraCharacteristics.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF);
+        return afRegions != null && afRegions >= 1;
     }
 
     @Override
@@ -1484,6 +1550,19 @@ class Camera2 extends CameraViewImpl {
             return;
         }
 
+        Rect rect = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+        if (rect == null) {
+            return;
+        }
+
+        newRect = CameraUtil.getZoomRect(scale, rect.width(), rect.height());
+
+        //新的范围比最大值还大,不可以设置,否则手机直接重启.
+        if (rect.contains(newRect)) {
+            mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
+            updatePreview();
+        }
+
         //某些情况下,比如1+0.1f的结果可能是1.1000000476837158,
         //这将导致最大的scale会出现类似8.000000476837158这样的值,
         //最终导致crop之后的范围越界,引发异常.
@@ -1492,98 +1571,58 @@ class Camera2 extends CameraViewImpl {
 
         mWt = scale;
         mZoomRatio = scale;
-
-        Rect rect = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-        newRect = CameraUtil.getScaledRect(rect, scale);
-
-        //新的范围比最大值还大,不可以设置,否则手机直接重启.
-        if (rect.contains(newRect)) {
-            mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
-            updatePreview();
-        }
     }
 
     @Override
     public void stopSmoothZoom() {
-        if (mZoomFrameCallback != null) {
-            Log.d("Camera2", "stopSmoothZoom ");
-            Choreographer.getInstance().removeFrameCallback(mZoomFrameCallback);
+        if (mSmoothZoomAnim != null) {
+            mSmoothZoomAnim.cancel();
         }
     }
 
     @Override
-    public void startSmoothZoom(final float end, long duration) {
+    public void startSmoothZoom(final float start, final float end, long duration) {
+        stopSmoothZoom();
         if (mPreviewRequestBuilder == null) {
             return;
         }
-        if (end == mWt) {
+        if (end == start) {
             return;
         }
         final Rect maxRect = mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+        final Rect startRect = CameraUtil.getScaledRect(maxRect, start);
         final Rect destinationRect = CameraUtil.getScaledRect(maxRect, end);
-        if (maxRect == null) {
-            return;
-        }
-
-        stopSmoothZoom();
 
         if (newRect == null) {
             newRect = CameraUtil.getScaledRect(maxRect, 1.01f);
         }
-        Rational rational = new Rational(maxRect.width(), maxRect.height());
-        //Rect.left和Rect.right在x轴上的增量
-        final int deltaX = rational.getNumerator();
-        //Rect.top和Rect.bottom在y轴上的增量
-        final int deltaY = rational.getDenominator();
-        //每一次post的间隔,用来持续变焦
-        final long delay = deltaY * duration / Math.abs(destinationRect.bottom - newRect.bottom);
-        //当前的比例是否比目标值要大,是否收缩
-        final boolean isShrink = mWt > end;
 
-        mZoomFrameCallback = new Choreographer.FrameCallback() {
+        if (mRectEvaluator == null) {
+            mRectEvaluator = new RectEvaluator(newRect);
+        }
+        if (mSmoothZoomAnim == null) {
+            mSmoothZoomAnim = ValueAnimator.ofFloat(0.01f, 1f);
+            mSmoothZoomAnim.setInterpolator(null);
+        }
 
+        mSmoothZoomAnim.removeAllUpdateListeners();
+        mSmoothZoomAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
-            public void doFrame(long frameTimeNanos) {
-                if (mPreviewRequestBuilder == null || mCamera == null) {
-                    Choreographer.getInstance().removeFrameCallback(this);
-                    return;
-                }
-                if (isShrink) {
-                    //当前的比例比目标比例要大,所以收缩
-                    newRect.top -= deltaY;
-                    newRect.bottom += deltaY;
-                    newRect.left -= deltaX;
-                    newRect.right += deltaX;
-                    if (newRect.contains(destinationRect)) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                } else {
-                    //当前的比例比目标比例要小,所以放大
-                    newRect.top += deltaY;
-                    newRect.bottom -= deltaY;
-                    newRect.left += deltaX;
-                    newRect.right -= deltaX;
-                    if (destinationRect.contains(newRect)) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                }
+            public void onAnimationUpdate(ValueAnimator animation) {
+                float value = (float) animation.getAnimatedValue();
+                newRect = mRectEvaluator.evaluate(value, startRect, destinationRect);
+                //新的范围比最大值还大,不可以设置,否则手机直接重启.
                 if (maxRect.contains(newRect)) {
                     mPreviewRequestBuilder.set(CaptureRequest.SCALER_CROP_REGION, newRect);
-                    float scale = maxRect.width() / (float) newRect.width();
-                    mWt = Math.round(scale * 10) / 10f;
-                    Log.d("Camera2", "doFrame: [smooth zoom, mWt] = " + mWt);
                     updatePreview();
-                    Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
-                } else {
-                    Choreographer.getInstance().removeFrameCallback(this);
+                    mWt = start + value * (end - start);
+                    mWt = Math.round(mWt * 100) / 100f;
+                    mZoomRatio = mWt;
                 }
             }
-        };
-
-        Choreographer.getInstance().postFrameCallback(mZoomFrameCallback);
-
+        });
+        mSmoothZoomAnim.setDuration(duration);
+        mSmoothZoomAnim.start();
     }
 
     /**

@@ -14,7 +14,7 @@ import com.zhiyun.android.base.SizeMap;
 class Camera2Api23 extends Camera2 {
 
     Camera2Api23(Callback callback, PreviewImpl preview, Context context) {
-        super(callback, preview, context);
+        super(callback, preview, context, false);
     }
 
     @Override

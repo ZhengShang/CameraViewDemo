@@ -94,6 +94,7 @@ public class MainActivity extends AppCompatActivity implements
     private boolean isHdrMode;
     private int manualMode;
     private long minValue, maxValue;
+    private float mMaxZoom;
 
     private int mCurrentFlash;
 
@@ -166,8 +167,14 @@ public class MainActivity extends AppCompatActivity implements
         aeSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-//                Log.e("MainActivity", "onProgressChanged: progress = " + (progress + min));
-//                mCameraView.setAEValue(progress + min);
+
+                if (manualMode == 6) {
+                    float zoom = progress * (mMaxZoom - 1) / 100f + 1;
+                    mCameraView.setWTlen(zoom);
+                    manualValue.setText(String.valueOf(zoom));
+                    return;
+                }
+
                 double realValue = (progress * (maxValue - minValue) / 100 + minValue);
                 Log.e("MainActivity", "onProgressChanged: realValue = " + realValue);
                 updateChangesToCamera(realValue);
@@ -380,8 +387,9 @@ public class MainActivity extends AppCompatActivity implements
                 }
                 break;
             case R.id.manual_wt:
+                mMaxZoom = mCameraView.getMaxZoom();
                 minValue = 0;
-                maxValue = 200;
+                maxValue = 100;
                 manualTitle.setText(item.getTitle());
                 manualMode = 6;
                 break;

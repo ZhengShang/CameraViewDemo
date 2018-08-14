@@ -54,5 +54,10 @@
             -->
             <enum name="redEye" value="4"/>
         </attr>
+        <attr name="cameraApi" format="enum">
+            <enum name="auto" value="0" />
+            <enum name="camera1" value="1" />
+            <enum name="camera2" value="2" />
+        </attr>
     </declare-styleable>
 </resources>

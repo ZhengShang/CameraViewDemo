@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ae_af_lock">自动对焦和自动曝光锁定，点击任意位置解除。</string>
+    <string name="spaceIsLow_content">存储空间不足，无法录像</string>
+    <string name="video_reach_size_limit">存储空间不足，已停止录像 .</string>
+</resources>

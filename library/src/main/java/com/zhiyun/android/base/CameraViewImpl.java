@@ -1,5 +1,7 @@
 package com.zhiyun.android.base;
 
+import android.animation.ValueAnimator;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.ImageFormat;
 import android.media.MediaActionSound;
@@ -12,11 +14,13 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import com.zhiyun.android.cameraview.FocusMarkerLayout;
+import com.zhiyun.android.cameraview.R;
 import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 import com.zhiyun.android.listener.OnVolumeListener;
 import com.zhiyun.android.recorder.MediaRecord;
+import com.zhiyun.android.util.CameraUtil;
 
 import java.util.List;
 import java.util.Set;
@@ -78,6 +82,10 @@ public abstract class CameraViewImpl {
     //    private SoundPool mSoundPool;
     private MediaActionSound mMediaActionSound;
     private boolean mPlaySound = Constants.DEFAULT_PLAY_SOUND;
+    /**
+     * 手机当前的方向.
+     */
+    protected int mPhoneOrientation;
 
     /**
      * 静音视频.
@@ -108,8 +116,10 @@ public abstract class CameraViewImpl {
     protected float mAf;
     protected float mWt = 1;
     protected float mZoomRatio = 1;
+    protected long mAvailableSpace;
+    private boolean mUseMediaRecord;
 
-    private Choreographer.FrameCallback mFocusFrameCallback;
+    private ValueAnimator mSmoothFocusAnim;
 
     public CameraViewImpl(Callback callback, PreviewImpl preview) {
         mCallback = callback;
@@ -132,25 +142,48 @@ public abstract class CameraViewImpl {
         mOnVolumeListener = onVolumeListener;
     }
 
-    protected void addVolumeListener(final boolean useMediaRecord) {
-        Choreographer.getInstance().postFrameCallback(new Choreographer.FrameCallback() {
-            @Override
-            public void doFrame(long frameTimeNanos) {
-                if (mIsRecordingVideo && !mMuteVideo) {
-                    double db;
-                    if (useMediaRecord) {
-                        db = mMediaRecord.getVolumeLevel();
-                    } else {
-                        db = 20 * Math.log10(mMediaRecorder.getMaxAmplitude() / 0.1f);
+    private Choreographer.FrameCallback mAvailableSpaceFrameCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!mIsRecordingVideo) {
+                return;
+            }
+            mAvailableSpace = CameraUtil.getAvailableSpace();
+            if (mAvailableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
+                stopRecordingVideo();
+                Context context = getView().getContext();
+                CameraUtil.showBlackToast(context, context.getString(R.string.video_reach_size_limit), mPhoneOrientation);
+            }
+            Choreographer.getInstance().postFrameCallbackDelayed(this, 1000);
+        }
+    };
+    private Choreographer.FrameCallback mVolumeFrameCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (mIsRecordingVideo && !mMuteVideo) {
+                double db;
+                if (mUseMediaRecord) {
+                    if (mMediaRecord == null) {
+                        return;
                     }
-                    if (mOnVolumeListener != null) {
-                        mOnVolumeListener.onRecordingVolume((int) db);
-                        Choreographer.getInstance().postFrameCallbackDelayed(this, 500);
+                    db = mMediaRecord.getVolumeLevel();
+                } else {
+                    if (mMediaRecorder == null) {
+                        return;
                     }
+                    db = 20 * Math.log10(mMediaRecorder.getMaxAmplitude() / 0.1f);
+                }
+                if (mOnVolumeListener != null) {
+                    mOnVolumeListener.onRecordingVolume((int) db);
+                    Choreographer.getInstance().postFrameCallbackDelayed(this, 500);
                 }
             }
-        });
+        }
+    };
 
+    protected void addVolumeListener(boolean useMediaRecord) {
+        mUseMediaRecord = useMediaRecord;
+        Choreographer.getInstance().postFrameCallback(mVolumeFrameCallback);
     }
 
     public View getView() {
@@ -162,11 +195,11 @@ public abstract class CameraViewImpl {
      */
     public abstract boolean start();
 
-    public void stop() {
-        if (mMediaActionSound != null) {
-            mMediaActionSound.release();
-            mMediaActionSound = null;
-        }
+    /**
+     * 实时监测剩余手机存储空间,如果小于一定的大小,自动停止录制.
+     */
+    protected void updateAvailableSpace() {
+        Choreographer.getInstance().postFrameCallback(mAvailableSpaceFrameCallback);
     }
 
 
@@ -214,6 +247,10 @@ public abstract class CameraViewImpl {
     public abstract boolean isTorch();
 
     public abstract void takePicture();
+
+    public long getAvailableSpace() {
+        return mAvailableSpace;
+    }
 
     /**
      * 根据点击区域重新对焦
@@ -272,8 +309,14 @@ public abstract class CameraViewImpl {
         return mIsRecordingVideo;
     }
 
-    public void setBitrate(int bitrate) {
-        mBitrate = bitrate;
+    public void stop() {
+        if (mMediaActionSound != null) {
+            mMediaActionSound.release();
+            mMediaActionSound = null;
+        }
+
+        Choreographer.getInstance().removeFrameCallback(mAvailableSpaceFrameCallback);
+        Choreographer.getInstance().removeFrameCallback(mVolumeFrameCallback);
     }
 
     public int getBitrate() {
@@ -332,51 +375,37 @@ public abstract class CameraViewImpl {
 
     public abstract void stopSmoothZoom();
 
-    public abstract void startSmoothZoom(float end, long duration);
+    /**
+     * 手机剩余空间是否不够.空间不够的话,无法进行视频录制.
+     * @return TRUE不够, FALSE够.
+     */
+    protected boolean lowAvailableSpace() {
+        long availableSpace = CameraUtil.getAvailableSpace();
+        if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
+            Context context = getView().getContext();
+            CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), mPhoneOrientation);
+            return true;
+        }
+        return false;
+    }
+
+    public void setBitrate(int bitrate) {
+        //查看推荐分辨率下的当前码率，谁大用哪个。
+        int recommendBitRate = mVideoSize.getRecommendBitRateFromCamcorder(getFacing());
+        if (bitrate > recommendBitRate) {
+            mBitrate = bitrate;
+        } else {
+            mBitrate = recommendBitRate;
+        }
+    }
+
+    public abstract void startSmoothZoom(float start, float end, long duration);
 
     public void stopSmoothFocus() {
-        if (mFocusFrameCallback != null) {
-            Choreographer.getInstance().removeFrameCallback(mFocusFrameCallback);
-            mFocusFrameCallback = null;
+        if (mSmoothFocusAnim != null) {
+            mSmoothFocusAnim.cancel();
         }
     }
-
-    public void startSmoothFocus(final float end, long duration) {
-        stopSmoothFocus();
-        if (end == mAf) {
-            return;
-        }
-        final long delay = (long) (duration / (Math.abs(mAf - end) * 10));
-        final boolean isShrink = mAf > end;
-        mFocusFrameCallback = new Choreographer.FrameCallback() {
-            @Override
-            public void doFrame(long frameTimeNanos) {
-                if (!isCameraOpened()) {
-                    Choreographer.getInstance().removeFrameCallback(this);
-                    return;
-                }
-                if (isShrink) {
-                    if (mAf <= end) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                    mAf -= 0.1f;
-                } else {
-                    if (mAf >= end) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                    mAf += 0.1f;
-                }
-                mAf = Math.round(mAf * 10) / 10f;
-                setAFValue(mAf);
-                Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
-            }
-        };
-        Choreographer.getInstance().postFrameCallback(mFocusFrameCallback);
-    }
-
-    public abstract void setPhoneOrientation(int orientation);
 
     public abstract void setDisplayOrientation(int displayOrientation);
 
@@ -610,5 +639,32 @@ public abstract class CameraViewImpl {
                 Log.e("CameraViewImpl", "releaseMediaRecord: e = " + e.getMessage());
             }
         }
+    }
+
+    public void startSmoothFocus(final float start, final float end, long duration) {
+        stopSmoothFocus();
+        if (start == end) {
+            return;
+        }
+        if (mSmoothFocusAnim == null) {
+            mSmoothFocusAnim = ValueAnimator.ofFloat(0, 1);
+            mSmoothFocusAnim.setInterpolator(null);
+        }
+        mSmoothFocusAnim.removeAllUpdateListeners();
+        mSmoothFocusAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                float value = (float) animation.getAnimatedValue();
+                mAf = start + value * (end - start);
+                mAf = Math.round(mAf * 10) / 10f;
+                setAFValue(mAf);
+            }
+        });
+        mSmoothFocusAnim.setDuration(duration);
+        mSmoothFocusAnim.start();
+    }
+
+    public void setPhoneOrientation(int orientation) {
+        mPhoneOrientation = orientation;
     }
 }
