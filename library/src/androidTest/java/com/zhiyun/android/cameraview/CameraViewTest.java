@@ -1,36 +1,4 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.zhiyun.android.cameraview;
-
-import static android.support.test.espresso.Espresso.onView;
-import static android.support.test.espresso.Espresso.registerIdlingResources;
-import static android.support.test.espresso.Espresso.unregisterIdlingResources;
-import static android.support.test.espresso.assertion.ViewAssertions.matches;
-import static android.support.test.espresso.matcher.ViewMatchers.assertThat;
-import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static android.support.test.espresso.matcher.ViewMatchers.withId;
-
-import static com.zhiyun.android.cameraview.AspectRatioIsCloseTo.closeToOrInverse;
-import static com.zhiyun.android.cameraview.CameraViewActions.setAspectRatio;
-import static com.zhiyun.android.cameraview.CameraViewMatchers.hasAspectRatio;
-
-import static junit.framework.Assert.assertFalse;
-
-import static org.hamcrest.CoreMatchers.is;
 
 import android.graphics.Bitmap;
 import android.os.SystemClock;
@@ -46,9 +14,8 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.zhiyun.android.cameraview.test.R;
-
 import com.zhiyun.android.base.AspectRatio;
+import com.zhiyun.android.cameraview.test.R;
 
 import org.hamcrest.Matcher;
 import org.hamcrest.core.IsAnything;
@@ -61,6 +28,19 @@ import org.junit.runner.RunWith;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Set;
+
+import static android.support.test.espresso.Espresso.onView;
+import static android.support.test.espresso.Espresso.registerIdlingResources;
+import static android.support.test.espresso.Espresso.unregisterIdlingResources;
+import static android.support.test.espresso.assertion.ViewAssertions.matches;
+import static android.support.test.espresso.matcher.ViewMatchers.assertThat;
+import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static android.support.test.espresso.matcher.ViewMatchers.withId;
+import static com.zhiyun.android.cameraview.AspectRatioIsCloseTo.closeToOrInverse;
+import static com.zhiyun.android.cameraview.CameraViewActions.setAspectRatio;
+import static com.zhiyun.android.cameraview.CameraViewMatchers.hasAspectRatio;
+import static junit.framework.Assert.assertFalse;
+import static org.hamcrest.CoreMatchers.is;
 
 @RunWith(AndroidJUnit4.class)
 public class CameraViewTest {

@@ -428,7 +428,7 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public void startRecordingVideo() {
+    public void startRecordingVideo(boolean triggerCallback) {
         if (lowAvailableSpace()) {
             return;
         }
@@ -436,19 +436,25 @@ public class Camera1 extends CameraViewImpl {
             try {
                 if (prepareMediaRecorder()) {
                     mMediaRecorder.start();
-                    mCallback.onVideoRecordingStarted();
+                    if (triggerCallback) {
+                        mCallback.onVideoRecordingStarted();
+                    }
                     mIsRecordingVideo = true;
                     addVolumeListener(false);
                     updateAvailableSpace();
                 } else {
                     Log.e("Camera1", "startRecordingVideo: prepre failed");
-                    mCallback.onVideoRecordingFailed();
+                    if (triggerCallback) {
+                        mCallback.onVideoRecordingFailed();
+                    }
                     releaseMediaRecorder();
                     mCamera.lock();
                 }
             } catch (IOException | RuntimeException e) {
                 Log.e("Camera1", "startRecordingVideo: failed = " + e.getMessage());
-                mCallback.onVideoRecordingFailed();
+                if (triggerCallback) {
+                    mCallback.onVideoRecordingFailed();
+                }
                 releaseMediaRecorder();
                 mCamera.lock();
             }
@@ -456,18 +462,24 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public void stopRecordingVideo() {
+    public void stopRecordingVideo(boolean triggerCallback) {
         synchronized (mCameraLock) {
             if (mIsRecordingVideo) {
                 try {
                     if (mMediaRecorder != null) {
                         mMediaRecorder.stop();
                     }
-                    mCallback.onVideoRecordStoped();
+                    if (triggerCallback) {
+                        mCallback.onVideoRecordStoped();
+                    } else {
+                        CameraUtil.addToMediaStore(mContext, mNextVideoAbsolutePath);
+                    }
 //                    playSound(SOUND_ID_STOP);
                 } catch (RuntimeException e) {
                     Log.e("Camera1", "stopRecordingVideo: failed = " + e.getMessage());
-                    mCallback.onVideoRecordingFailed();
+                    if (triggerCallback) {
+                        mCallback.onVideoRecordingFailed();
+                    }
                 }
 
                 //如果正在进行平滑af和wt,就停止
@@ -487,7 +499,9 @@ public class Camera1 extends CameraViewImpl {
                 //回调此方法,主要的目的在于,在移动延时摄影时,可能调整了CaptureRate的参数.
                 //所以用这个方法使CameraActivity2来进行相机参数的重新设置.
                 //上面的小米手机通过重启相机也已经包含了这个回调.
-                mCallback.onRequestBuilderCreate();
+                if (triggerCallback) {
+                    mCallback.onRequestBuilderCreate();
+                }
             }
         }
     }
@@ -510,6 +524,7 @@ public class Camera1 extends CameraViewImpl {
             mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 
             mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            generateVideoFilePath();
             mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
             mMediaRecorder.setVideoFrameRate(mFps);
             mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
@@ -527,7 +542,7 @@ public class Camera1 extends CameraViewImpl {
                 mMediaRecorder.setAudioChannels(2);
             }
 
-
+            setMaxFileListener();
             mMediaRecorder.setOrientationHint(calculateCaptureRotation());
 
             try {
@@ -812,7 +827,7 @@ public class Camera1 extends CameraViewImpl {
                                 focusMode.equals(Camera.Parameters.FOCUS_MODE_MACRO) ||
                                 focusMode.equals(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE) ||
                                 focusMode.equals(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
-                        ) {
+                ) {
                     parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
                     parameters.setFocusAreas(meteringAreas);
                     if (parameters.getMaxNumMeteringAreas() > 0) {

@@ -38,6 +38,9 @@ public interface Constants {
     int GRID_GRID_AND_DIAGONAL = 2;//网格线 网格+对角线
     int GRID_CENTER_POINT = 3; //网格线 中心点
     int GRID_DIAGONAL = 4;//对角线
+    int GRID_GRID_6x4 = 5;//网格线6x4
+    int GRID_FIBONACCI = 6;//斐波拉契黄金线
+
 
     int LANDSCAPE_90 = 90;
     int LANDSCAPE_270 = 270;

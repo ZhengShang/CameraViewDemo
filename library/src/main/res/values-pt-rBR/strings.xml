@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ae_af_lock">AE/AF LOCK</string>
+    <string name="spaceIsLow_content">Gravação de vídeo indisponível porque não há memória suficiente</string>
+    <string name="video_reach_size_limit">Gravação de vídeo parou porque não há memória suficiente. </string>
+</resources>

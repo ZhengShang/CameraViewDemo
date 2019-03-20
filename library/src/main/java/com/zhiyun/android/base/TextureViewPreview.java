@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
+import android.util.DisplayMetrics;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -131,12 +132,21 @@ public class TextureViewPreview extends PreviewImpl {
 
     @Override
     public Bitmap getFrameBitmap() {
-        return mTextureView.getBitmap();
+        return getFrameBitmap(getWidth(), getHeight());
     }
 
     @Override
     public Bitmap getFrameBitmap(int width, int height) {
-        return mTextureView.getBitmap(width, height);
+        if (mTextureView.isAvailable() && width > 0 && height > 0) {
+            return mTextureView.getBitmap(createBmp(width, height));
+        } else {
+            return null;
+        }
+    }
+
+    private Bitmap createBmp(int width, int height) {
+        DisplayMetrics metrics = mTextureView.getResources().getDisplayMetrics();
+        return Bitmap.createBitmap(metrics, width, height, Bitmap.Config.RGB_565);
     }
 
 

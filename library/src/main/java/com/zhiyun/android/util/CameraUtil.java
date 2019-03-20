@@ -1,9 +1,11 @@
 package com.zhiyun.android.util;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.hardware.camera2.params.RggbChannelVector;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.StatFs;
@@ -394,13 +396,14 @@ public class CameraUtil {
         int halfWidth = (int) (rect.width() / scale / 2 + 0.5f);
         int halfHeight = (int) (rect.height() / scale / 2 + 0.5f);
 
-        int l = rect.width() / 2 - halfWidth;
-        int t = rect.height() / 2 - halfHeight;
+        int l = rect.width() / 2 - halfWidth + rect.left;
+        int t = rect.height() / 2 - halfHeight + rect.top;
         int r = rect.width() / 2 + halfWidth;
         int b = rect.height() / 2 + halfHeight;
 
         return new Rect(l, t, r, b);
     }
+
 
     //Calculate zoom area according input image size
     //Copy from OpenCamera
@@ -417,6 +420,7 @@ public class CameraUtil {
         return new Rect((imgWidth - cropWidthStd) / 2, (imgHeight - cropHeightStd) / 2, (imgWidth + cropWidthStd) / 2,
                 (imgHeight + cropHeightStd) / 2);
     }
+
 
     public static android.util.Size find4k(List<android.util.Size> list) {
         if (list == null || list.isEmpty()) {
@@ -458,4 +462,15 @@ public class CameraUtil {
         return (blockSize * availableBlocks) / 1024 / 1024;
     }
 
+    /**
+     * 添加记录到媒体库
+     * @param context    context
+     * @param path        文件绝对路径
+     */
+    public static void addToMediaStore(Context context, String path) {
+        Intent sanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+        Uri uri = Uri.fromFile(new File(path));
+        sanIntent.setData(uri);
+        context.sendBroadcast(sanIntent);
+    }
 }

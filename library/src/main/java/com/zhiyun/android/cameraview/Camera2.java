@@ -128,6 +128,40 @@ class Camera2 extends CameraViewImpl {
 
     };
 
+    private final CameraCaptureSession.StateCallback mSessionCallback
+            = new CameraCaptureSession.StateCallback() {
+
+        @Override
+        public void onConfigured(@NonNull CameraCaptureSession session) {
+            if (mCamera == null) {
+                return;
+            }
+            mCaptureSession = session;
+            updateAutoFocus();
+            updateFlash(mPreviewRequestBuilder);
+            mCallback.onRequestBuilderCreate();
+            setPreviewParamsToBuilder(mPreviewRequestBuilder);
+            updatePreview();
+
+            //保存摄像头的视频分辨率信息
+            saveVideosInSp();
+            mAvailableSpace = CameraUtil.getAvailableSpace();
+        }
+
+        @Override
+        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+            Log.e(TAG, "Failed to configure capture session.");
+        }
+
+        @Override
+        public void onClosed(@NonNull CameraCaptureSession session) {
+            if (mCaptureSession != null && mCaptureSession.equals(session)) {
+                mCaptureSession = null;
+            }
+        }
+
+    };
+
     private PictureCaptureCallback mCaptureCallback = new PictureCaptureCallback() {
 
         @Override
@@ -183,39 +217,6 @@ class Camera2 extends CameraViewImpl {
             }
 
         }
-    };
-    private final CameraCaptureSession.StateCallback mSessionCallback
-            = new CameraCaptureSession.StateCallback() {
-
-        @Override
-        public void onConfigured(@NonNull CameraCaptureSession session) {
-            if (mCamera == null) {
-                return;
-            }
-            mCaptureSession = session;
-            updateAutoFocus();
-            updateFlash(mPreviewRequestBuilder);
-            mCallback.onRequestBuilderCreate();
-            setPreviewParamsToBuilder(mPreviewRequestBuilder);
-            updatePreview();
-
-            //保存摄像头的视频分辨率信息
-            saveVideosInSp();
-            mAvailableSpace = CameraUtil.getAvailableSpace();
-        }
-
-        @Override
-        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-            Log.e(TAG, "Failed to configure capture session.");
-        }
-
-        @Override
-        public void onClosed(@NonNull CameraCaptureSession session) {
-            if (mCaptureSession != null && mCaptureSession.equals(session)) {
-                mCaptureSession = null;
-            }
-        }
-
     };
 
     private final ImageReader.OnImageAvailableListener mOnImageAvailableListener
@@ -840,7 +841,7 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
-    public void startRecordingVideo() {
+    public void startRecordingVideo(final boolean triggerCallback) {
         if (null == mCamera || !mPreview.isReady()) {
             return;
         }
@@ -848,7 +849,7 @@ class Camera2 extends CameraViewImpl {
             return;
         }
         try {
-            setupVideoRecorder();
+            setupVideoRecorder(triggerCallback);
             mPreviewRequestBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
             mPreviewRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT,
                     CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD);
@@ -898,13 +899,17 @@ class Camera2 extends CameraViewImpl {
                         //录制视频时,不需要一直对焦
                         lockFocus();
                         startVideoRecording();
-                        mCallback.onVideoRecordingStarted();
+                        if (triggerCallback) {
+                            mCallback.onVideoRecordingStarted();
+                        }
                         addVolumeListener(useMediaRecord());
                         updateAvailableSpace();
                     } catch (IllegalStateException e) {
                         mIsRecordingVideo = false;
-                        Log.e("Camera2", "onConfigured:  the camera is already in use by another app");
-                        mCallback.onVideoRecordingFailed();
+                        Log.e("Camera2", "onConfigured:  the camera is already in use by another app", e);
+                        if (triggerCallback) {
+                            mCallback.onVideoRecordingFailed();
+                        }
                         startCaptureSession();
                     }
 
@@ -912,14 +917,18 @@ class Camera2 extends CameraViewImpl {
 
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
-                    mCallback.onVideoRecordingFailed();
+                    if (triggerCallback) {
+                        mCallback.onVideoRecordingFailed();
+                    }
                     startCaptureSession();
                 }
             }, mBackgroundHandler);
         } catch (Exception e) {
-            mCallback.onVideoRecordingFailed();
+            if (triggerCallback) {
+                mCallback.onVideoRecordingFailed();
+            }
             startCaptureSession();
-            Log.e("Camera2", "startRecordingVideo: failed = " + e.getMessage());
+            Log.e("Camera2", "startRecordingVideo: failed = " + e.getMessage(), e);
         }
 
     }
@@ -941,7 +950,7 @@ class Camera2 extends CameraViewImpl {
 
         //manual awb
         if (mManualWB != 5500) {
-            RggbChannelVector rggbChannelVector = CameraUtil.kelvinToRgb(mManualWB);
+            RggbChannelVector rggbChannelVector = CameraUtil.colorTemperature(mManualWB);
             builder.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF);
             builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
             builder.set(CaptureRequest.COLOR_CORRECTION_GAINS, rggbChannelVector);
@@ -1005,7 +1014,7 @@ class Camera2 extends CameraViewImpl {
     }
 
     @Override
-    public void stopRecordingVideo() {
+    public void stopRecordingVideo(boolean triggerCallback) {
         try {
             mIsRecordingVideo = false;
 
@@ -1016,17 +1025,22 @@ class Camera2 extends CameraViewImpl {
             stopSmoothFocus();
             stopSmoothZoom();
 
-            playSound(SOUND_ID_STOP);
-
-            mCallback.onVideoRecordStoped();
+            if (triggerCallback) {
+                playSound(SOUND_ID_STOP);
+                mCallback.onVideoRecordStoped();
+            } else {
+                CameraUtil.addToMediaStore(mContext, mNextVideoAbsolutePath);
+            }
 
             sendRecordingStopAction();
 
             closePreviewSession();
             startCaptureSession();
         } catch (Exception e) {
-            mCallback.onVideoRecordingFailed();
-            Log.e("Camera2", "stopRecordingVideo:  = " + e.getMessage());
+            if (triggerCallback) {
+                mCallback.onVideoRecordingFailed();
+            }
+            Log.e("Camera2", "stopRecordingVideo failed. ", e);
             stop();
             start();
         }
@@ -1038,20 +1052,24 @@ class Camera2 extends CameraViewImpl {
      * @return true 使用 {@link MediaRecord}
      */
     private boolean useMediaRecord() {
-        boolean isOreo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
-        return !isOreo && !mMuteVideo && "samsung".equals(Build.BRAND.toLowerCase());
+//        boolean isOreo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+//        return !isOreo && !mMuteVideo && "samsung".equals(Build.BRAND.toLowerCase());
+        return false;
     }
 
-    private void setUpMediaRecorder() throws IOException {
+    private void setUpMediaRecorder(boolean playSound) throws IOException {
         mMediaRecorder = new MediaRecorder();
 
-        playSound(SOUND_ID_START);
+        if (playSound) {
+            playSound(SOUND_ID_START);
+        }
 
         if (!mMuteVideo) {
             mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         }
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        generateVideoFilePath();
         if (mNextVideoAbsolutePath == null || mNextVideoAbsolutePath.isEmpty()) {
             throw new FileNotFoundException("点击拍摄视频前，请先传入视频输出路径");
         }
@@ -1069,6 +1087,7 @@ class Camera2 extends CameraViewImpl {
         mMediaRecorder.setCaptureRate(mCaptureRate);
 
         mMediaRecorder.setVideoEncodingBitRate(mBitrate);
+        setMaxFileListener();
 
         @SuppressWarnings("ConstantConditions")
         int sensorOrientation = mCameraCharacteristics.get(
@@ -1096,6 +1115,7 @@ class Camera2 extends CameraViewImpl {
         mMediaRecord.setAudioSamplingRate(48000);
         mMediaRecord.containsAudio(true);
         mMediaRecord.containsVideo(true);
+        generateVideoFilePath();
         if (mNextVideoAbsolutePath == null || mNextVideoAbsolutePath.isEmpty()) {
             throw new FileNotFoundException("点击拍摄视频前，请先传入视频输出路径");
         }
@@ -1112,11 +1132,11 @@ class Camera2 extends CameraViewImpl {
         mMediaRecord.prepare();
     }
 
-    private void setupVideoRecorder() throws IOException {
+    private void setupVideoRecorder(boolean playSound) throws IOException {
         if (useMediaRecord()) {
             setUpMediaRecord();
         } else {
-            setUpMediaRecorder();
+            setUpMediaRecorder(playSound);
         }
     }
 
@@ -1194,7 +1214,7 @@ class Camera2 extends CameraViewImpl {
             mFacing = Constants.FACING_BACK;
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to get a list of camera devices");
+            Log.e(TAG, "Failed to get a list of camera devices", e);
             return false;
         }
     }
@@ -1346,7 +1366,7 @@ class Camera2 extends CameraViewImpl {
         try {
             mCameraManager.openCamera(mCameraId, mCameraDeviceCallback, null);
         } catch (CameraAccessException | SecurityException e) {
-            Log.e("Camera2", "startOpeningCamera: [Failed to open camera] " + e.getMessage());
+            Log.e("Camera2", "startOpeningCamera: [Failed to open camera] ", e);
         }
     }
 
@@ -1370,7 +1390,7 @@ class Camera2 extends CameraViewImpl {
             mCamera.createCaptureSession(Arrays.asList(surface, mImageReader.getSurface()),
                     mSessionCallback, mBackgroundHandler);
         } catch (Exception e) {
-            Log.e("Camera2", "startCaptureSession: ", e);
+            Log.e("Camera2", "startCaptureSession failed", e);
             stop();
             start();
         }
@@ -1476,7 +1496,7 @@ class Camera2 extends CameraViewImpl {
                         }, mBackgroundHandler);
 
             } catch (Exception e) {
-                Log.e("Camera2", "resetAF:  = " + e.getMessage());
+                Log.e("Camera2", "resetAF failed ", e);
             }
         }
     }
@@ -1512,8 +1532,8 @@ class Camera2 extends CameraViewImpl {
                 builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
                 break;
             case Constants.FLASH_ON:
-                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH);
-                builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
+//                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH);
+//                builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
                 break;
             case Constants.FLASH_TORCH:
                 builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
@@ -1642,7 +1662,7 @@ class Camera2 extends CameraViewImpl {
         } catch (CameraAccessException e) {
             Log.e(TAG, "Failed to lock focus.", e);
         } catch (IllegalStateException e2) {
-            Log.d("Camera2", "lock failed");
+            Log.d("Camera2", "lock failed", e2);
         }
     }
 
@@ -1711,7 +1731,7 @@ class Camera2 extends CameraViewImpl {
                     }, mBackgroundHandler);
 
         } catch (CameraAccessException | IllegalArgumentException e) {
-            Log.e(TAG, "Cannot capture a still picture." + e.getMessage());
+            Log.e(TAG, "Cannot capture a still picture.", e);
         }
     }
 
@@ -1799,7 +1819,7 @@ class Camera2 extends CameraViewImpl {
                 mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(), mCaptureCallback, mBackgroundHandler);
             }
         } catch (Exception e) {
-            Log.e("Camera2", "updatePreview: failed = " + e.getMessage());
+            Log.e("Camera2", "updatePreview: failed = ", e);
         }
     }
 

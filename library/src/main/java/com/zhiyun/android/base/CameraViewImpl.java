@@ -18,9 +18,11 @@ import com.zhiyun.android.cameraview.R;
 import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
+import com.zhiyun.android.listener.OnVideoOutputFileListener;
 import com.zhiyun.android.listener.OnVolumeListener;
 import com.zhiyun.android.recorder.MediaRecord;
 import com.zhiyun.android.util.CameraUtil;
+import com.zhiyun.android.util.MediaActionSoundBlackList;
 
 import java.util.List;
 import java.util.Set;
@@ -35,6 +37,7 @@ public abstract class CameraViewImpl {
     protected OnAeChangeListener mOnAeChangeListener;
     protected OnCaptureImageCallback mOnCaptureImageCallback;
     protected OnVolumeListener mOnVolumeListener;
+    private OnVideoOutputFileListener mOnVideoOutputFileListener;
 
     protected final PreviewImpl mPreview;
     /**
@@ -138,10 +141,6 @@ public abstract class CameraViewImpl {
         mOnCaptureImageCallback = onCaptureImageCallback;
     }
 
-    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
-        mOnVolumeListener = onVolumeListener;
-    }
-
     private Choreographer.FrameCallback mAvailableSpaceFrameCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
@@ -150,7 +149,7 @@ public abstract class CameraViewImpl {
             }
             mAvailableSpace = CameraUtil.getAvailableSpace();
             if (mAvailableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
-                stopRecordingVideo();
+                stopRecordingVideo(true);
                 Context context = getView().getContext();
                 CameraUtil.showBlackToast(context, context.getString(R.string.video_reach_size_limit), mPhoneOrientation);
             }
@@ -181,9 +180,19 @@ public abstract class CameraViewImpl {
         }
     };
 
+    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
+        mOnVolumeListener = onVolumeListener;
+    }
+
     protected void addVolumeListener(boolean useMediaRecord) {
         mUseMediaRecord = useMediaRecord;
         Choreographer.getInstance().postFrameCallback(mVolumeFrameCallback);
+    }
+
+    private boolean mLock = false;
+
+    public void addOnVideoOutputFileListener(OnVideoOutputFileListener onVideoOutputFileListener) {
+        mOnVideoOutputFileListener = onVideoOutputFileListener;
     }
 
     public View getView() {
@@ -195,11 +204,8 @@ public abstract class CameraViewImpl {
      */
     public abstract boolean start();
 
-    /**
-     * 实时监测剩余手机存储空间,如果小于一定的大小,自动停止录制.
-     */
-    protected void updateAvailableSpace() {
-        Choreographer.getInstance().postFrameCallback(mAvailableSpaceFrameCallback);
+    public OnVideoOutputFileListener getOnVideoOutputFileListener() {
+        return mOnVideoOutputFileListener;
     }
 
 
@@ -248,8 +254,11 @@ public abstract class CameraViewImpl {
 
     public abstract void takePicture();
 
-    public long getAvailableSpace() {
-        return mAvailableSpace;
+    /**
+     * 实时监测剩余手机存储空间,如果小于一定的大小,自动停止录制.
+     */
+    protected void updateAvailableSpace() {
+        Choreographer.getInstance().postFrameCallback(mAvailableSpaceFrameCallback);
     }
 
     /**
@@ -301,12 +310,8 @@ public abstract class CameraViewImpl {
         return mMuteVideo;
     }
 
-    public abstract void startRecordingVideo();
-
-    public abstract void stopRecordingVideo();
-
-    public boolean isRecordingVideo() {
-        return mIsRecordingVideo;
+    public long getAvailableSpace() {
+        return mAvailableSpace;
     }
 
     public void stop() {
@@ -317,6 +322,24 @@ public abstract class CameraViewImpl {
 
         Choreographer.getInstance().removeFrameCallback(mAvailableSpaceFrameCallback);
         Choreographer.getInstance().removeFrameCallback(mVolumeFrameCallback);
+    }
+
+    public boolean isRecordingVideo() {
+        return mIsRecordingVideo;
+    }
+
+    /**
+     * 手机剩余空间是否不够.空间不够的话,无法进行视频录制.
+     * @return TRUE不够, FALSE够.
+     */
+    protected boolean lowAvailableSpace() {
+        long availableSpace = CameraUtil.getAvailableSpace();
+        if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
+            Context context = getView().getContext();
+            CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), mPhoneOrientation);
+            return true;
+        }
+        return false;
     }
 
     public int getBitrate() {
@@ -331,13 +354,11 @@ public abstract class CameraViewImpl {
         return mCaptureRate;
     }
 
-    public void setVideoOutputFilePath(String path) {
-        mNextVideoAbsolutePath = path;
-    }
-
     public String getVideoOutputFilePath() {
         return mNextVideoAbsolutePath;
     }
+
+    public abstract void startRecordingVideo(boolean triggerCallback);
 
     public int getAwbMode() {
         return mAwbMode;
@@ -375,19 +396,15 @@ public abstract class CameraViewImpl {
 
     public abstract void stopSmoothZoom();
 
-    /**
-     * 手机剩余空间是否不够.空间不够的话,无法进行视频录制.
-     * @return TRUE不够, FALSE够.
-     */
-    protected boolean lowAvailableSpace() {
-        long availableSpace = CameraUtil.getAvailableSpace();
-        if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
-            Context context = getView().getContext();
-            CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), mPhoneOrientation);
-            return true;
+    public abstract void startSmoothZoom(float start, float end, long duration);
+
+    public void stopSmoothFocus() {
+        if (mSmoothFocusAnim != null) {
+            mSmoothFocusAnim.cancel();
         }
-        return false;
     }
+
+    public abstract void stopRecordingVideo(boolean triggerCallback);
 
     public void setBitrate(int bitrate) {
         //查看推荐分辨率下的当前码率，谁大用哪个。
@@ -396,14 +413,6 @@ public abstract class CameraViewImpl {
             mBitrate = bitrate;
         } else {
             mBitrate = recommendBitRate;
-        }
-    }
-
-    public abstract void startSmoothZoom(float start, float end, long duration);
-
-    public void stopSmoothFocus() {
-        if (mSmoothFocusAnim != null) {
-            mSmoothFocusAnim.cancel();
         }
     }
 
@@ -588,18 +597,11 @@ public abstract class CameraViewImpl {
         LocalBroadcastManager.getInstance(getView().getContext()).sendBroadcast(intent);
     }
 
-    protected void loadAudio() {
-        // 美图手机这里出现内部错误
-        try {
-            if (mMediaActionSound == null) {
-                mMediaActionSound = new MediaActionSound();
-                mMediaActionSound.load(MediaActionSound.SHUTTER_CLICK);
-                mMediaActionSound.load(MediaActionSound.START_VIDEO_RECORDING);
-                mMediaActionSound.load(MediaActionSound.STOP_VIDEO_RECORDING);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+    protected String generateVideoFilePath() {
+        if (mOnVideoOutputFileListener != null) {
+            mNextVideoAbsolutePath = mOnVideoOutputFileListener.getVideoOutputFilePath();
         }
+        return mNextVideoAbsolutePath;
     }
 
     protected void playSound(int soundId) {
@@ -666,5 +668,45 @@ public abstract class CameraViewImpl {
 
     public void setPhoneOrientation(int orientation) {
         mPhoneOrientation = orientation;
+    }
+
+    protected void loadAudio() {
+        if (MediaActionSoundBlackList.isSupported() && mMediaActionSound == null) {
+            try { // 部分手机无法加载快门音
+                mMediaActionSound = new MediaActionSound();
+                mMediaActionSound.load(MediaActionSound.SHUTTER_CLICK);
+                mMediaActionSound.load(MediaActionSound.START_VIDEO_RECORDING);
+                mMediaActionSound.load(MediaActionSound.STOP_VIDEO_RECORDING);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    protected void setMaxFileListener() {
+        if (mMediaRecorder != null) {
+            mMediaRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
+                @Override
+                public void onInfo(MediaRecorder mr, int what, int extra) {
+                    //这个回调会连续出现2次,忽略掉一个
+                    if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED && !mLock) {
+                        mLock = true;
+                        if (mPreview != null && mPreview.getView() != null) {
+                            mPreview.getView().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    mLock = false;
+                                }
+                            }, 1000);
+                        }
+                        Log.d("CameraViewImpl", "MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED");
+                        if (mOnVideoOutputFileListener != null) {
+                            stopRecordingVideo(false);
+                            startRecordingVideo(false);
+                        }
+                    }
+                }
+            });
+        }
     }
 }

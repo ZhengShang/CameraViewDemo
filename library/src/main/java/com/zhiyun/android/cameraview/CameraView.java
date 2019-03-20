@@ -25,6 +25,7 @@ import com.zhiyun.android.base.TextureViewPreview;
 import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
+import com.zhiyun.android.listener.OnVideoOutputFileListener;
 import com.zhiyun.android.listener.OnVolumeListener;
 
 import java.lang.annotation.Retention;
@@ -304,11 +305,15 @@ public class CameraView extends FrameLayout {
     public void start() {
         if (mStartApi == 0) {
             if (!mImpl.start()) {
+                //save listener
+                OnVideoOutputFileListener onVideoOutputFileListener = mImpl.getOnVideoOutputFileListener();
                 //store the state ,and restore this state after fall back o Camera1
                 Parcelable state = onSaveInstanceState();
                 mImpl = new Camera1(mCallbacks, mPreview, getContext());
                 onRestoreInstanceState(state);
                 mImpl.start();
+                //restore listener
+                mImpl.addOnVideoOutputFileListener(onVideoOutputFileListener);
             }
         } else {
             mImpl.start();
@@ -373,6 +378,10 @@ public class CameraView extends FrameLayout {
 
     public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
         mImpl.addOnVolumeListener(onVolumeListener);
+    }
+
+    public void addOnVideoOutputFileListener(OnVideoOutputFileListener onVideoOutputFileListener) {
+        mImpl.addOnVideoOutputFileListener(onVideoOutputFileListener);
     }
 
     /**
@@ -549,13 +558,6 @@ public class CameraView extends FrameLayout {
     }
 
     /**
-     * 设置视频输出路径
-     */
-    public void setVideoOutputFilePath(String path) {
-        mImpl.setVideoOutputFilePath(path);
-    }
-
-    /**
      * 获取视频输出路径
      */
     public String getVideoOutputFilePath() {
@@ -603,11 +605,11 @@ public class CameraView extends FrameLayout {
     }
 
     public void startRecordingVideo() {
-        mImpl.startRecordingVideo();
+        mImpl.startRecordingVideo(true);
     }
 
     public void stopRecordingVideo() {
-        mImpl.stopRecordingVideo();
+        mImpl.stopRecordingVideo(true);
     }
 
     public boolean isRecordingVideo() {
@@ -846,6 +848,10 @@ public class CameraView extends FrameLayout {
 
     public boolean isManualWTSupported() {
         return mImpl.isManualWTSupported();
+    }
+
+    public PreviewImpl getPreview() {
+        return mPreview;
     }
 
     public Bitmap getPreviewFrameBitmap(){

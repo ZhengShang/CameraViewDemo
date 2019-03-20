@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ae_af_lock">AE/AF LOCK</string>
+    <string name="spaceIsLow_content">저장 공간이 부족하여 비디오 녹화를 사용할 수 없습니다.</string>
+    <string name="video_reach_size_limit">저장 공간이 부족하여 비디오 녹화가 중지되었습니다. </string>
+</resources>

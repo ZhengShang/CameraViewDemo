@@ -104,7 +104,7 @@ public class MediaRecord {
 
         @Override
         public void onAudioOutputFormatChanged(@NonNull MediaFormat format) {
-            mAudioTrackId = mMeidaMuxer.addTrack(format);
+            mAudioTrackId = addTrack(format);
             if(canMuxing()) {
                 mMeidaMuxer.start();
                 isMuxing = true;
@@ -120,13 +120,11 @@ public class MediaRecord {
             }
         }
     };
-
-
     private final VideoEncoderCore.Callback mVideoCallback = new VideoEncoderCore.Callback() {
 
         @Override
         public void onVideoOutputFormatChanged(@NonNull MediaFormat format) {
-            mVideoTrackId = mMeidaMuxer.addTrack(format);
+            mVideoTrackId = addTrack(format);
             if(canMuxing()) {
                 mMeidaMuxer.start();
                 isMuxing = true;
@@ -142,6 +140,17 @@ public class MediaRecord {
             }
         }
     };
+
+    private int addTrack(MediaFormat format) {
+        // format 有无效的情况，但没找到原因
+        int trackId;
+        try {
+            trackId = mMeidaMuxer.addTrack(format);
+        } catch (Exception e) {
+            trackId = -1;
+        }
+        return trackId;
+    }
 
 
     public void prepare() {
