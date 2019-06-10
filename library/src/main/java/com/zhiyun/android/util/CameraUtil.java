@@ -8,16 +8,21 @@ import android.hardware.camera2.params.RggbChannelVector;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.StatFs;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.Surface;
 import android.widget.Toast;
 
+import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.cameraview.BuildConfig;
 import com.zhiyun.android.cameraview.R;
+import com.zhiyun.android.widget.RotateTextView;
 
 import java.io.File;
 import java.util.List;
@@ -472,5 +477,45 @@ public class CameraUtil {
         Uri uri = Uri.fromFile(new File(path));
         sanIntent.setData(uri);
         context.sendBroadcast(sanIntent);
+    }
+
+    /**
+     * 手机剩余空间是否不够.空间不够的话,无法进行视频录制.
+     *
+     * @return TRUE不够, FALSE够.
+     */
+    public static boolean lowAvailableSpace(final Context context, final int rotation) {
+        long availableSpace = CameraUtil.getAvailableSpace();
+        if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
+            //Show Toast in UI thread
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), rotation);
+            } else {
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), rotation);
+                    }
+                });
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 如果传入的文件为空文件(文件存在,但大小为0kb),则删除掉
+     *
+     * @param filePath 文件路径
+     */
+    public static void deleteEmptyFIle(String filePath) {
+        if (TextUtils.isEmpty(filePath)) {
+            return;
+        }
+        File file = new File(filePath);
+        if (file.isFile() && file.length() <= 0) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+        }
     }
 }

@@ -1,9 +1,5 @@
 package com.zhiyun.android.listener;
 
-/**
- * Created by shangzheng on 2018/4/12.
- *            🐳🐳🐳🍒           16:32 🥥
- */
 public interface OnAeChangeListener {
 
     /**

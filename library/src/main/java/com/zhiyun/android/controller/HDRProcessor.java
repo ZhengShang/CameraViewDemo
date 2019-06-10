@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package com.zhiyun.android.controller;
 
 import android.annotation.TargetApi;
 import android.content.Context;
@@ -46,7 +46,7 @@ public class HDRProcessor {
         if (rs != null) {
             // need to destroy context, otherwise this isn't necessarily garbage collected - we had tests failing with out of memory
             // problems e.g. when running MainTests as a full set with Camera2 API. Although we now reduce the problem by creating
-            // the rs lazily, it's still good to explicitly clear.
+            // the rs lazily, it's still good to explicitly restore.
             rs.destroy(); // on Android M onwards this is a NOP - instead we call RenderScript.releaseAllContexts(); in CameraActivity.onDestroy()
         }
     }
@@ -519,7 +519,7 @@ public class HDRProcessor {
 					byte b = mtb_bytes[j];
 					pixels[j] = Color.argb(255, b, b, b);
 				}
-				Bitmap mtb_bitmap = Bitmap.createBitmap(pixels, mtb_width, mtb_height, Bitmap.Config.ARGB_8888);
+				Bitmap mtb_bitmap = Bitmap.createBitmap(pixels, mtb_width, mtb_height, Bitmap.CameraConfig.ARGB_8888);
 				File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM) + "/mtb_bitmap" + i + ".jpg");
 				try {
 					OutputStream outputStream = new FileOutputStream(file);

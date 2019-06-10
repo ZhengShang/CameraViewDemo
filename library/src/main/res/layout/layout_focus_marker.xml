@@ -22,7 +22,7 @@
                 android:layout_height="wrap_content"
                 android:src="@drawable/ic_focus"/>
 
-            <com.zhiyun.android.cameraview.AEsun
+            <com.zhiyun.android.widget.AEsun
                 android:id="@+id/aeSun"
                 android:layout_width="wrap_content"
                 android:layout_height="120dp"/>

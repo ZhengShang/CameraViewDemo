@@ -7,7 +7,7 @@ import com.zhiyun.android.cameraview.CameraView;
  * ☃☃☃ 19:13.
  *
  * 用于单独返回拍照完成后获取数据的接口
- * 区别于{@link com.zhiyun.android.cameraview.CameraView#addCallback(CameraView.Callback)},
+ * 区别于{@link CameraView#addCallback(Callback)},
  * 本接口只关心并返回拍照这一件事
  */
 

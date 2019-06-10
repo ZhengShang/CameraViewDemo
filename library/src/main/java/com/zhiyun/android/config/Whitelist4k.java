@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package com.zhiyun.android.config;
 
 
 import android.os.Build;

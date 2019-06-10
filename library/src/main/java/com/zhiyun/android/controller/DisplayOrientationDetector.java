@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package com.zhiyun.android.controller;
 
 import android.content.Context;
 import android.util.SparseIntArray;
@@ -12,7 +12,7 @@ import static com.zhiyun.android.util.CameraUtil.translate2Rotation;
 /**
  * Monitors the value returned from {@link Display#getRotation()}.
  */
-abstract class DisplayOrientationDetector {
+public abstract class DisplayOrientationDetector {
 
     private final OrientationEventListener mOrientationEventListener;
 

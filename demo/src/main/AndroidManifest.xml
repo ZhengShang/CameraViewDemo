@@ -11,7 +11,8 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 -->
-<manifest package="com.zhiyun.android.cameraview.demo"
+<manifest xmlns:tools="http://schemas.android.com/tools"
+    package="com.zhiyun.android.cameraview.demo"
           xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
@@ -19,9 +20,12 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Demo">
+        android:theme="@style/Theme.Demo"
+        tools:ignore="GoogleAppIndexingWarning">
 
-        <activity android:name=".MainActivity" android:screenOrientation="landscape">
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

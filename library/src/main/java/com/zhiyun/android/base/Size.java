@@ -3,6 +3,10 @@ package com.zhiyun.android.base;
 import android.media.CamcorderProfile;
 import android.support.annotation.NonNull;
 
+import com.zhiyun.android.util.CamcorderUtil;
+
+import java.util.Objects;
+
 /**
  * Immutable class for describing width and height dimensions in pixels.
  */
@@ -10,6 +14,7 @@ public class Size implements Comparable<Size> {
 
     private final int mWidth;
     private final int mHeight;
+    private int mFps = 30;
 
     /**
      * Create a new immutable Size instance.
@@ -22,12 +27,26 @@ public class Size implements Comparable<Size> {
         mHeight = height;
     }
 
+    public Size(int width, int height, int fps) {
+        mWidth = width;
+        mHeight = height;
+        mFps = fps;
+    }
+
     public int getWidth() {
         return mWidth;
     }
 
     public int getHeight() {
         return mHeight;
+    }
+
+    public int getFps() {
+        return mFps;
+    }
+
+    public void setFps(int fps) {
+        mFps = fps;
     }
 
     @Override
@@ -40,25 +59,31 @@ public class Size implements Comparable<Size> {
         }
         if (o instanceof Size) {
             Size size = (Size) o;
-            return mWidth == size.mWidth && mHeight == size.mHeight;
+            return mWidth == size.mWidth && mHeight == size.mHeight && mFps == size.mFps;
         }
         return false;
     }
 
     @Override
     public String toString() {
-        return mWidth + "x" + mHeight;
+        return mWidth + "x" + mHeight + " " + mFps + "p";
     }
 
     @Override
     public int hashCode() {
-        // assuming most sizes are <2^16, doing a rotate will give us perfect hashing
-        return mHeight ^ ((mWidth << (Integer.SIZE / 2)) | (mWidth >>> (Integer.SIZE / 2)));
+        return Objects.hash(getWidth(), getHeight(), getFps());
     }
 
     @Override
     public int compareTo(@NonNull Size another) {
+        if (mWidth * mHeight == another.mWidth * another.mHeight) {
+            return mFps - another.mFps;
+        }
         return mWidth * mHeight - another.mWidth * another.mHeight;
+    }
+
+    public boolean hasHighSpeedCamcorder(int cameraId) {
+        return CamcorderUtil.hasHighSpeedCamcorder(this, cameraId);
     }
 
     public CamcorderProfile getCamcorderProfile() {
@@ -93,7 +118,7 @@ public class Size implements Comparable<Size> {
         if (CamcorderProfile.hasProfile(cameraId, quality)) {
             return CamcorderProfile.get(cameraId, quality).videoBitRate;
         } else {
-            return 7000000;
+            return Constants.DEF_BITRATE;
         }
     }
 }

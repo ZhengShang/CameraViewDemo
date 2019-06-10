@@ -34,6 +34,8 @@ android {
 }
 
 dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    api fileTree(include: ['huawei-CameraKit-9.0.0.101.aar'], dir: 'libs')
     implementation "com.android.support:support-annotations:$supportLibraryVersion"
     implementation "com.android.support:support-v4:$supportLibraryVersion"
     // Tests

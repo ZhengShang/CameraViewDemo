@@ -1,18 +1,4 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+
 
 package com.zhiyun.android.cameraview.demo;
 
@@ -39,6 +25,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.util.Range;
+import android.util.Rational;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -50,6 +37,10 @@ import android.widget.Toast;
 
 import com.zhiyun.android.base.AspectRatio;
 import com.zhiyun.android.cameraview.CameraView;
+import com.zhiyun.android.listener.Callback;
+import com.zhiyun.android.listener.CameraError;
+import com.zhiyun.android.listener.OnVideoOutputFileListener;
+import com.zhiyun.android.util.CameraUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -113,7 +104,6 @@ public class MainActivity extends AppCompatActivity implements
                     break;
                 case R.id.record_video:
                     if (mCameraView != null) {
-                        mCameraView.setVideoOutputFilePath(getFilePath(true));
                         if (mCameraView.isRecordingVideo()) {
                             mCameraView.stopRecordingVideo();
                         } else {
@@ -126,6 +116,79 @@ public class MainActivity extends AppCompatActivity implements
     };
     private FloatingActionButton fabVideo;
     private TextView manualTitle, manualValue;
+    private Callback mCallback
+            = new Callback() {
+
+        @Override
+        public void onFailed(CameraError error) {
+            super.onFailed(error);
+        }
+
+        @Override
+        public void onCameraOpened(CameraView cameraView) {
+            Log.d(TAG, "onCameraOpened");
+
+            Range<Integer> aerange = mCameraView.getAERange();
+//            final int min = aerange.getLower();
+
+        }
+
+        @Override
+        public void onCameraClosed(CameraView cameraView) {
+            Log.d(TAG, "onCameraClosed");
+        }
+
+        @Override
+        public void onPictureTaken(CameraView cameraView, final byte[] data) {
+            Log.d(TAG, "onPictureTaken " + data.length);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(MainActivity.this, R.string.picture_taken, Toast.LENGTH_SHORT).show();
+                }
+            });
+            getBackgroundHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    File file = new File(getFilePath(false));
+                    try (OutputStream os = new FileOutputStream(file)) {
+                        os.write(data);
+                        CameraUtil.addToMediaStore(MainActivity.this, file.getPath());
+                    } catch (IOException e) {
+                        Log.w(TAG, "Cannot write to " + file, e);
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void onVideoRecordingStarted(CameraView cameraView) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    fabVideo.setColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP);
+                }
+            });
+        }
+
+        @Override
+        public void onVideoRecordingStopped(final CameraView cameraView) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(MainActivity.this, cameraView.getVideoOutputFilePath(),
+                            Toast.LENGTH_SHORT).show();
+                    fabVideo.setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_ATOP);
+                    Log.e("MainActivity", "run: path = " + cameraView.getVideoOutputFilePath());
+                }
+            });
+        }
+
+        @Override
+        public void onVideoRecordingFailed(CameraView cameraView) {
+            Toast.makeText(MainActivity.this, "onVideoRecordingFailed", Toast.LENGTH_SHORT).show();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -176,7 +239,12 @@ public class MainActivity extends AppCompatActivity implements
                 }
 
                 double realValue = (progress * (maxValue - minValue) / 100 + minValue);
-                Log.e("MainActivity", "onProgressChanged: realValue = " + realValue);
+                Log.v("MainActivity", "onProgressChanged: realValue = " + realValue);
+                if (manualMode != 0) {
+                    mCameraView.setManualMode(true);
+                } else {
+                    mCameraView.setManualMode(false);
+                }
                 updateChangesToCamera(realValue);
             }
 
@@ -190,32 +258,13 @@ public class MainActivity extends AppCompatActivity implements
 
             }
         });
-    }
 
-    private void updateChangesToCamera(double progress) {
-        switch (manualMode) {
-            case 1: //ae
-                mCameraView.setAEValue((int) progress);
-                break;
-            case 2://sec
-                mCameraView.setSecValue((long) progress);
-                break;
-            case 3://iso
-                mCameraView.setISOValue((int) progress);
-                break;
-            case 4://wb
-                mCameraView.setManualWBValue((int) progress);
-                break;
-            case 5://af
-                mCameraView.setManualAFValue((float) progress);
-                break;
-            case 6://wt
-                mCameraView.setWTlen((int) progress);
-                break;
-            default:
-                break;
-        }
-        manualValue.setText(String.valueOf(progress));
+        mCameraView.addOnVideoOutputFileListener(new OnVideoOutputFileListener() {
+            @Override
+            public String getVideoOutputFilePath() {
+                return getFilePath(true);
+            }
+        });
     }
 
     @Override
@@ -433,80 +482,34 @@ public class MainActivity extends AppCompatActivity implements
         return mBackgroundHandler;
     }
 
-    private CameraView.Callback mCallback
-            = new CameraView.Callback() {
-
-        @Override
-        public void onCameraOpened(CameraView cameraView) {
-            Log.d(TAG, "onCameraOpened");
-
-            Range<Integer> aerange = mCameraView.getAERange();
-            final int min = aerange.getLower();
-
+    private void updateChangesToCamera(double progress) {
+        switch (manualMode) {
+            case 1: //ae
+                mCameraView.setAEValue((int) progress);
+                break;
+            case 2://sec
+                mCameraView.setSecValue((long) progress);
+                int denominator = (int) Math.round(1000000000f / progress);
+                Rational rational = new Rational(1, denominator);
+                manualValue.setText(rational.toString());
+                return;
+            case 3://iso
+                mCameraView.setISOValue((int) progress);
+                break;
+            case 4://wb
+                mCameraView.setManualWBValue((int) progress);
+                break;
+            case 5://af
+                mCameraView.setManualAFValue((float) progress);
+                break;
+            case 6://wt
+                mCameraView.setWTlen((int) progress);
+                break;
+            default:
+                break;
         }
-
-        @Override
-        public void onCameraClosed(CameraView cameraView) {
-            Log.d(TAG, "onCameraClosed");
-        }
-
-        @Override
-        public void onPictureTaken(CameraView cameraView, final byte[] data) {
-            Log.d(TAG, "onPictureTaken " + data.length);
-            Toast.makeText(MainActivity.this, R.string.picture_taken, Toast.LENGTH_SHORT)
-                    .show();
-            getBackgroundHandler().post(new Runnable() {
-                @Override
-                public void run() {
-                    File file = new File(getFilePath(false));
-                    OutputStream os = null;
-                    try {
-                        os = new FileOutputStream(file);
-                        os.write(data);
-                        os.close();
-                    } catch (IOException e) {
-                        Log.w(TAG, "Cannot write to " + file, e);
-                    } finally {
-                        if (os != null) {
-                            try {
-                                os.close();
-                            } catch (IOException e) {
-                                // Ignore
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        @Override
-        public void onVideoRecordingStarted(CameraView cameraView) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    fabVideo.setColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP);
-                }
-            });
-        }
-
-        @Override
-        public void onVideoRecordingStopped(final CameraView cameraView) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(MainActivity.this, cameraView.getVideoOutputFilePath(),
-                            Toast.LENGTH_SHORT).show();
-                    fabVideo.setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_ATOP);
-                    Log.e("MainActivity", "run: path = " + cameraView.getVideoOutputFilePath());
-                }
-            });
-        }
-
-        @Override
-        public void onVideoRecordingFailed(CameraView cameraView) {
-            Toast.makeText(MainActivity.this, "onVideoRecordingFailed", Toast.LENGTH_SHORT).show();
-        }
-    };
+        manualValue.setText(String.valueOf(progress));
+    }
 
     public static class ConfirmationDialogFragment extends DialogFragment {
 

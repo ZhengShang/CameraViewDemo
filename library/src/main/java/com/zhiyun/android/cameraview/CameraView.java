@@ -1,17 +1,23 @@
 package com.zhiyun.android.cameraview;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
+import android.media.MediaRecorder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.os.ParcelableCompat;
 import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.ViewCompat;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Range;
 import android.widget.FrameLayout;
@@ -22,18 +28,28 @@ import com.zhiyun.android.base.Constants;
 import com.zhiyun.android.base.PreviewImpl;
 import com.zhiyun.android.base.Size;
 import com.zhiyun.android.base.TextureViewPreview;
+import com.zhiyun.android.controller.CameraController;
+import com.zhiyun.android.controller.DisplayOrientationDetector;
+import com.zhiyun.android.controller.SoundController;
+import com.zhiyun.android.listener.Callback;
+import com.zhiyun.android.listener.CallbackBridge;
+import com.zhiyun.android.listener.CameraError;
 import com.zhiyun.android.listener.OnAeChangeListener;
 import com.zhiyun.android.listener.OnCaptureImageCallback;
 import com.zhiyun.android.listener.OnManualValueListener;
 import com.zhiyun.android.listener.OnVideoOutputFileListener;
 import com.zhiyun.android.listener.OnVolumeListener;
+import com.zhiyun.android.task.AvailableSpaceTask;
+import com.zhiyun.android.task.VolumeTask;
+import com.zhiyun.android.widget.FocusMarkerLayout;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.SortedSet;
+
+import static com.zhiyun.android.base.Constants.BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO;
 
 public class CameraView extends FrameLayout {
 
@@ -121,7 +137,10 @@ public class CameraView extends FrameLayout {
     private final DisplayOrientationDetector mDisplayOrientationDetector;
 
     private PreviewImpl mPreview;
-    private int mStartApi;
+
+    private VolumeTask mVolumeTask;
+
+    private CameraController mCameraController;
 
     public CameraView(Context context) {
         this(context, null);
@@ -129,6 +148,29 @@ public class CameraView extends FrameLayout {
 
     public CameraView(Context context, AttributeSet attrs) {
         this(context, attrs, 0);
+    }
+
+    private BroadcastReceiver mLocalBroadcast = new BroadcastReceiver() {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (TextUtils.isEmpty(intent.getAction())) {
+                return;
+            }
+            if (BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO.equals(intent.getAction())) {
+                stop();
+                mImpl = mCameraController.switchToHighSpeedCamera(getContext(), mCallbacks, mPreview);
+                start();
+            }
+        }
+    };
+
+    @NonNull
+    private PreviewImpl createPreviewImpl(Context context) {
+        PreviewImpl preview;
+        preview = new TextureViewPreview(context, this);
+//        preview = new SurfaceViewPreview(context, this);
+        return preview;
     }
 
     @SuppressWarnings("WrongConstant")
@@ -146,14 +188,16 @@ public class CameraView extends FrameLayout {
         final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CameraView,
                 defStyleAttr,
                 R.style.Widget_CameraView);
-        mStartApi = a.getInt(R.styleable.CameraView_cameraApi, 0);
-        if (mStartApi == 0) {
-            mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext(), false);
-        } else if (mStartApi == 1) {
-            mImpl = new Camera1(mCallbacks, mPreview, context.getApplicationContext());
-        } else {
-            mImpl = new Camera2(mCallbacks, mPreview, context.getApplicationContext(), true);
+        int startApi = a.getInt(R.styleable.CameraView_cameraApi, 0);
+
+        mCameraController = new CameraController(startApi);
+        try {
+            mImpl = mCameraController.openCamera(context, mCallbacks, mPreview);
+        } catch (RuntimeException e) {
+            mCallbacks.onFailed(CameraError.OPEN_FAILED);
+            e.printStackTrace();
         }
+
         mAdjustViewBounds = a.getBoolean(R.styleable.CameraView_android_adjustViewBounds, false);
         setFacing(a.getInt(R.styleable.CameraView_facing, FACING_BACK));
         String aspectRatio = a.getString(R.styleable.CameraView_aspectRatio);
@@ -181,14 +225,10 @@ public class CameraView extends FrameLayout {
                 mFocusMarkerLayout.setRotation(rotation);
             }
         };
-    }
 
-    @NonNull
-    private PreviewImpl createPreviewImpl(Context context) {
-        PreviewImpl preview;
-        preview = new TextureViewPreview(context, this);
-//        preview = new SurfaceViewPreview(context, this);
-        return preview;
+        AvailableSpaceTask.monitorAvailableSpace(this);
+        mVolumeTask = new VolumeTask();
+        mVolumeTask.monitorVolume(this);
     }
 
     @Override
@@ -197,6 +237,11 @@ public class CameraView extends FrameLayout {
         if (!isInEditMode()) {
             mDisplayOrientationDetector.enable(ViewCompat.getDisplay(this));
         }
+        SoundController.getInstance().loadSound();
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO);
+        LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
     }
 
     @Override
@@ -204,11 +249,14 @@ public class CameraView extends FrameLayout {
         if (!isInEditMode()) {
             mDisplayOrientationDetector.disable();
         }
+        LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(mLocalBroadcast);
+
         super.onDetachedFromWindow();
 
-        if (mCallbacks != null && mCallbacks.mCallbacks != null) {
-            mCallbacks.mCallbacks.clear();
+        if (mCallbacks != null) {
+            mCallbacks.clear();
         }
+        SoundController.getInstance().release();
     }
 
     @Override
@@ -254,9 +302,9 @@ public class CameraView extends FrameLayout {
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
         AspectRatio ratio = getAspectRatio();
-//        if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
-//            ratio = ratio.inverse();
-//        }
+        if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
+            ratio = ratio.inverse();
+        }
 
         if (ratio != null) {
 
@@ -303,21 +351,7 @@ public class CameraView extends FrameLayout {
      * {@link Activity#onResume()}.
      */
     public void start() {
-        if (mStartApi == 0) {
-            if (!mImpl.start()) {
-                //save listener
-                OnVideoOutputFileListener onVideoOutputFileListener = mImpl.getOnVideoOutputFileListener();
-                //store the state ,and restore this state after fall back o Camera1
-                Parcelable state = onSaveInstanceState();
-                mImpl = new Camera1(mCallbacks, mPreview, getContext());
-                onRestoreInstanceState(state);
-                mImpl.start();
-                //restore listener
-                mImpl.addOnVideoOutputFileListener(onVideoOutputFileListener);
-            }
-        } else {
-            mImpl.start();
-        }
+        mImpl.start();
         post(new Runnable() {
             @Override
             public void run() {
@@ -377,7 +411,7 @@ public class CameraView extends FrameLayout {
     }
 
     public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
-        mImpl.addOnVolumeListener(onVolumeListener);
+        mVolumeTask.setOnVolumeListener(onVolumeListener);
     }
 
     public void addOnVideoOutputFileListener(OnVideoOutputFileListener onVideoOutputFileListener) {
@@ -429,7 +463,6 @@ public class CameraView extends FrameLayout {
     public String getCameraId() {
         return mImpl.getCameraId();
     }
-
 
 
     /**
@@ -544,11 +577,15 @@ public class CameraView extends FrameLayout {
         return mImpl.getAvailableSpace();
     }
 
+    public int getPhoneOrientation() {
+        return mImpl.getPhoneOrientation();
+    }
+
     /**
      * 设置当前手机的真实朝向.
      * 因为在{ CameraActivity2}中,设置了强制横屏,所以{@link DisplayOrientationDetector#onDisplayOrientationChanged(int)}
      * 不会随着手机方向的改变而触发.
-     * 所以单独使用一个变量{@link Camera2#mPhoneOrientation}来保存当前手机的方向,
+     * 所以单独使用一个变量{@link CameraViewImpl#mPhoneOrientation}来保存当前手机的方向,
      * 然后在拍摄完照片或录制完视频的时候,旋转一定的方向,以使输出的图像永远是竖直朝向的
      *
      * @param orientation 当前的手机方向,[0,90,180,270]
@@ -592,7 +629,7 @@ public class CameraView extends FrameLayout {
         mImpl.setMuteVideo(muteVideo);
     }
 
-    public boolean getMuteVideo() {
+    public boolean isMuteVideo() {
         return mImpl.getMuteVideo();
     }
 
@@ -648,7 +685,7 @@ public class CameraView extends FrameLayout {
         mImpl.setFps(fps);
     }
 
-    public List<android.util.Size> getSupportedPicSizes() {
+    public SortedSet<Size> getSupportedPicSizes() {
         return mImpl.getSupportedPicSizes();
     }
 
@@ -656,7 +693,7 @@ public class CameraView extends FrameLayout {
         return mImpl.isSupported60Fps();
     }
 
-    public List<android.util.Size> getSupportedVideoSize() {
+    public SortedSet<Size> getSupportedVideoSize() {
         return mImpl.getSupportedVideoSize();
     }
 
@@ -820,6 +857,7 @@ public class CameraView extends FrameLayout {
      * {@link #getZoomRatios()}数组的倒数第二个item值(需要除以100,以小数表示,此例子中,该值为7.81).此时的
      * zoomRatio则不一定与WT的值一致.
      * 为了保持在外层调用一致的原则,特意添加此方法.
+     *
      * @return 返回当前的缩放比例
      */
     public float getZoomRatio() {
@@ -854,7 +892,7 @@ public class CameraView extends FrameLayout {
         return mPreview;
     }
 
-    public Bitmap getPreviewFrameBitmap(){
+    public Bitmap getPreviewFrameBitmap() {
         return mPreview.getFrameBitmap();
     }
 
@@ -878,84 +916,8 @@ public class CameraView extends FrameLayout {
         mFocusMarkerLayout.showAeAdjust();
     }
 
-    private static class CallbackBridge implements CameraViewImpl.Callback {
-
-        private final ArrayList<Callback> mCallbacks = new ArrayList<>();
-
-        private boolean mRequestLayoutOnOpen;
-
-        private WeakReference<CameraView> cameraView;
-
-        CallbackBridge(CameraView cameraView) {
-            this.cameraView = new WeakReference<>(cameraView);
-        }
-
-        public void add(Callback callback) {
-            mCallbacks.add(callback);
-        }
-
-        public void remove(Callback callback) {
-            mCallbacks.remove(callback);
-        }
-
-        @Override
-        public void onCameraOpened() {
-            if (mRequestLayoutOnOpen) {
-                mRequestLayoutOnOpen = false;
-                if (cameraView.get() != null) {
-                    cameraView.get().requestLayout();
-                }
-            }
-            for (Callback callback : mCallbacks) {
-                callback.onCameraOpened(cameraView.get());
-            }
-        }
-
-        @Override
-        public void onCameraClosed() {
-            for (Callback callback : mCallbacks) {
-                callback.onCameraClosed(cameraView.get());
-            }
-        }
-
-        @Override
-        public void onRequestBuilderCreate() {
-            for (Callback callback : mCallbacks) {
-                callback.onRequestBuilderCreate(cameraView.get());
-            }
-        }
-
-        @Override
-        public void onPictureTaken(byte[] data) {
-            for (Callback callback : mCallbacks) {
-                callback.onPictureTaken(cameraView.get(), data);
-            }
-        }
-
-        @Override
-        public void onVideoRecordingStarted() {
-            for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingStarted(cameraView.get());
-            }
-        }
-
-        @Override
-        public void onVideoRecordStoped() {
-            for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingStopped(cameraView.get());
-            }
-        }
-
-        @Override
-        public void onVideoRecordingFailed() {
-            for (Callback callback : mCallbacks) {
-                callback.onVideoRecordingFailed(cameraView.get());
-            }
-        }
-
-        public void reserveRequestLayoutOnOpen() {
-            mRequestLayoutOnOpen = true;
-        }
+    public MediaRecorder getMediaRecorder() {
+        return mImpl.getMediaRecorder();
     }
 
     protected static class SavedState extends BaseSavedState {
@@ -1008,53 +970,4 @@ public class CameraView extends FrameLayout {
         });
 
     }
-
-    /**
-     * Callback for monitoring events about {@link CameraView}.
-     */
-    @SuppressWarnings("UnusedParameters")
-    public abstract static class Callback {
-
-        /**
-         * Called when camera is opened.
-         *
-         * @param cameraView The associated {@link CameraView}.
-         */
-        public void onCameraOpened(CameraView cameraView) {
-        }
-
-        /**
-         * Called when camera is closed.
-         *
-         * @param cameraView The associated {@link CameraView}.
-         */
-        public void onCameraClosed(CameraView cameraView) {
-        }
-
-        public void onRequestBuilderCreate(CameraView cameraView) {
-
-        }
-
-        /**
-         * Called when a picture is taken.
-         *
-         * @param cameraView The associated {@link CameraView}.
-         * @param data       JPEG data.
-         */
-        public void onPictureTaken(CameraView cameraView, byte[] data) {
-        }
-
-        public void onVideoRecordingStarted(CameraView cameraView) {
-
-        }
-
-        public void onVideoRecordingStopped(CameraView cameraView) {
-
-        }
-
-        public void onVideoRecordingFailed(CameraView cameraView) {
-
-        }
-    }
-
 }

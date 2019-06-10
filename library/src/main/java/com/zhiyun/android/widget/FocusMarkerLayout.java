@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package com.zhiyun.android.widget;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -29,8 +29,13 @@ import android.view.View;
 import android.widget.FrameLayout;
 
 import com.zhiyun.android.base.CameraViewImpl;
+import com.zhiyun.android.cameraview.CameraView;
+import com.zhiyun.android.cameraview.R;
 import com.zhiyun.android.util.CameraUtil;
 
+import static com.zhiyun.android.base.Constants.BROADCAST_ACTION_RECORING_STOP;
+import static com.zhiyun.android.base.Constants.BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO;
+import static com.zhiyun.android.base.Constants.BROADCAST_ACTION_TAKE_PHOTO;
 import static com.zhiyun.android.cameraview.CameraView.GRID_CENTER_POINT;
 import static com.zhiyun.android.cameraview.CameraView.GRID_DIAGONAL;
 import static com.zhiyun.android.cameraview.CameraView.GRID_GRID;
@@ -39,9 +44,6 @@ import static com.zhiyun.android.cameraview.CameraView.GRID_NONE;
 
 @TargetApi(14)
 public class FocusMarkerLayout extends FrameLayout {
-
-    public static final String BROADCAST_ACTION_TAKE_PHOTO = "zyplay.action.take.photo";
-    public static final String BROADCAST_ACTION_RECORING_STOP = "zyplay.action.recording.stop";
 
     private CameraViewImpl mImpl;
     private View mFocusMarkerContainer;
@@ -168,6 +170,33 @@ public class FocusMarkerLayout extends FrameLayout {
         animator.start();
     }
 
+    /**
+     * 使用广播接收{CaptureController#mOnImageAvailableListener}拍照完成的回调,以便调用本来的capture()方法.
+     * 播放背景色闪烁动画.
+     * <p>
+     * 之所以使用广播的方式,是因为在{@link CameraView}中的CallbackBridge是静态方法,无法直接调用本类的{@link #capture()}
+     */
+    private BroadcastReceiver mLocalBroadcast = new BroadcastReceiver() {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (TextUtils.isEmpty(intent.getAction())) {
+                return;
+            }
+            switch (intent.getAction()) {
+                case BROADCAST_ACTION_TAKE_PHOTO:
+                    capture();
+                    break;
+                case BROADCAST_ACTION_RECORING_STOP:
+                    mFocusMarkerContainer.setAlpha(0);
+                    break;
+                case BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO:
+                    switchCamera();
+                    break;
+            }
+        }
+    };
+
     private void focus(float mx, float my) {
         int x = (int) (mx - mFocusMarkerContainer.getWidth() / 2);
         int y = (int) (my - mFocusMarkerContainer.getWidth() / 2);
@@ -260,13 +289,15 @@ public class FocusMarkerLayout extends FrameLayout {
         canvas.drawLine(2 * getWidth() / 3, 0, 2 * getWidth() / 3, getHeight(), mPaint);
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(BROADCAST_ACTION_TAKE_PHOTO);
-        intentFilter.addAction(BROADCAST_ACTION_RECORING_STOP);
-        LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
+    /**
+     * 切换相机镜头或者其他模式的动画
+     */
+    private void switchCamera() {
+        setBackgroundColor(Color.DKGRAY);
+        ObjectAnimator animator = ObjectAnimator.ofArgb(
+                FocusMarkerLayout.this, "BackgroundColor", Color.DKGRAY, Color.TRANSPARENT);
+        animator.setStartDelay(500);
+        animator.start();
     }
 
     @Override
@@ -275,29 +306,15 @@ public class FocusMarkerLayout extends FrameLayout {
         super.onDetachedFromWindow();
     }
 
-    /**
-     * 使用广播接收{@link Camera2#mOnImageAvailableListener}拍照完成的回调,以便调用本来的capture()方法.
-     * 播放背景色闪烁动画.
-     * <p>
-     * 之所以使用广播的方式,是因为在{@link CameraView}中的CallbackBridge是静态方法,无法直接调用本类的{@link #capture()}
-     */
-    private BroadcastReceiver mLocalBroadcast = new BroadcastReceiver() {
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (TextUtils.isEmpty(intent.getAction())) {
-                return;
-            }
-            switch (intent.getAction()) {
-                case BROADCAST_ACTION_TAKE_PHOTO:
-                    capture();
-                    break;
-                case BROADCAST_ACTION_RECORING_STOP:
-                    mFocusMarkerContainer.setAlpha(0);
-                    break;
-            }
-        }
-    };
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(BROADCAST_ACTION_TAKE_PHOTO);
+        intentFilter.addAction(BROADCAST_ACTION_RECORING_STOP);
+        intentFilter.addAction(BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO);
+        LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
+    }
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
@@ -320,11 +337,15 @@ public class FocusMarkerLayout extends FrameLayout {
     private class ScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
         private float mCurrentRatio;
         private float mMinRatio = 1.0f;
-        private float mMaxRatio ;
-        /** Next time zoom change should be sent to listener. */
-        private long mDelayZoomCallUntilMillis = 0;
-        /** Minimum time between calls to zoom listener. */
+        /**
+         * Minimum time between calls to zoom listener.
+         */
         private static final long ZOOM_MINIMUM_WAIT_MILLIS = 33;
+        private float mMaxRatio;
+        /**
+         * Next time zoom change should be sent to listener.
+         */
+        private long mDelayZoomCallUntilMillis = 0;
 
         @Override
         public boolean onScale(ScaleGestureDetector detector) {

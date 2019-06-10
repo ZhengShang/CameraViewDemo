@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package com.zhiyun.android.widget;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -11,6 +11,8 @@ import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 import android.util.AttributeSet;
 import android.view.View;
+
+import com.zhiyun.android.cameraview.R;
 
 /**
  * Created by shangzheng on 2017/11/16
