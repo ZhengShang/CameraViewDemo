@@ -1,4 +1,4 @@
-package com.zhiyun.android.cameraview;
+package cn.zhengshang.cameraview;
 
 import android.app.Activity;
 import android.os.Bundle;

@@ -1,13 +1,13 @@
-package com.zhiyun.android.cameraview;
+package cn.zhengshang.cameraview;
 
 import android.support.annotation.NonNull;
 import android.view.View;
 
-import com.zhiyun.android.base.AspectRatio;
-
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 import org.hamcrest.TypeSafeMatcher;
+
+import cn.zhengshang.base.AspectRatio;
 
 class CameraViewMatchers {
 

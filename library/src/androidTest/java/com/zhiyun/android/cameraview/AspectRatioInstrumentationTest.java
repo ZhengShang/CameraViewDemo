@@ -1,12 +1,12 @@
-package com.zhiyun.android.cameraview;
+package cn.zhengshang.cameraview;
 
 import android.os.Parcel;
 import android.support.test.runner.AndroidJUnit4;
 
-import com.zhiyun.android.base.AspectRatio;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import cn.zhengshang.base.AspectRatio;
 
 import static junit.framework.Assert.assertNotNull;
 import static org.hamcrest.MatcherAssert.assertThat;

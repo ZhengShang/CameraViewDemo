@@ -21,7 +21,7 @@
     android:background="@color/primary"
     tools:context=".MainActivity">
 
-    <com.zhiyun.android.cameraview.CameraView
+    <cn.zhengshang.cameraview.CameraView
         android:id="@+id/camera"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

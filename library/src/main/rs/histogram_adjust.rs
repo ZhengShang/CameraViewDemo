@@ -1,5 +1,5 @@
 #pragma version(1)
-#pragma rs java_package_name(com.zhiyun.android)
+#pragma rs java_package_name(cn.zhengshang)
 #pragma rs_fp_relaxed
 
 rs_allocation c_histogram;

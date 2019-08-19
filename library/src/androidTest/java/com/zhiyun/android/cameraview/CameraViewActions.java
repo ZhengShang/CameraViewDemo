@@ -1,13 +1,13 @@
-package com.zhiyun.android.cameraview;
+package cn.zhengshang.cameraview;
 
 import android.support.annotation.NonNull;
 import android.support.test.espresso.UiController;
 import android.support.test.espresso.ViewAction;
 import android.view.View;
 
-import com.zhiyun.android.base.AspectRatio;
-
 import org.hamcrest.Matcher;
+
+import cn.zhengshang.base.AspectRatio;
 
 import static android.support.test.espresso.matcher.ViewMatchers.isAssignableFrom;
 

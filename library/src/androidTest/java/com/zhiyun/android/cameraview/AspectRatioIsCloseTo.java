@@ -1,11 +1,11 @@
-package com.zhiyun.android.cameraview;
-
-import com.zhiyun.android.base.AspectRatio;
+package cn.zhengshang.cameraview;
 
 import org.hamcrest.Description;
 import org.hamcrest.Factory;
 import org.hamcrest.Matcher;
 import org.hamcrest.TypeSafeMatcher;
+
+import cn.zhengshang.base.AspectRatio;
 
 import static org.hamcrest.CoreMatchers.either;
 

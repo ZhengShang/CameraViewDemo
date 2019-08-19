@@ -1,10 +1,10 @@
-package com.zhiyun.android.cameraview;
-
-import com.zhiyun.android.base.AspectRatio;
-import com.zhiyun.android.base.Size;
-import com.zhiyun.android.base.SizeMap;
+package cn.zhengshang.cameraview;
 
 import org.junit.Test;
+
+import cn.zhengshang.base.AspectRatio;
+import cn.zhengshang.base.Size;
+import cn.zhengshang.base.SizeMap;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;

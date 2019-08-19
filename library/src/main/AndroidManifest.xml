@@ -11,7 +11,7 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 -->
-<manifest package="com.zhiyun.android.cameraview"
+<manifest package="cn.zhengshang.cameraview"
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
