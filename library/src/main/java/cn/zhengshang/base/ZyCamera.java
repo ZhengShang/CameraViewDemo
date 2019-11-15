@@ -69,6 +69,10 @@ public interface ZyCamera {
 
     void takePicture();
 
+    void takeBurstPictures();
+
+    void stopBurstPicture();
+
     /**
      * 根据点击区域重新对焦
      *

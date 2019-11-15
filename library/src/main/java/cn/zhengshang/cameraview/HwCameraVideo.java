@@ -450,6 +450,11 @@ public class HwCameraVideo extends CameraViewImpl {
     }
 
     @Override
+    public void takeBurstPictures() {
+
+    }
+
+    @Override
     public void resetAF(MotionEvent e, boolean lock) {
         focusOnTouch(e.getX(), e.getY());
     }

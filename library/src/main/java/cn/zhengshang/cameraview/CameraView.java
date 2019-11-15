@@ -611,6 +611,14 @@ public class CameraView extends FrameLayout {
         mImpl.takePicture();
     }
 
+    public void takeBurstPicture() {
+        mImpl.takeBurstPictures();
+    }
+
+    public void stopBurstPicture() {
+        mImpl.stopBurstPicture();
+    }
+
     public void startRecordingVideo() {
         mImpl.startRecordingVideo(true);
     }

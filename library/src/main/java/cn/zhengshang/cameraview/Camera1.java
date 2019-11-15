@@ -246,6 +246,11 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public void takeBurstPictures() {
+
+    }
+
+    @Override
     public void resetAF(MotionEvent event, final boolean lock) {
         synchronized (mCameraLock) {
             if (mCamera == null) {

@@ -117,23 +117,20 @@ public class Camera2 extends CameraViewImpl {
         public synchronized void onResultCallback(CaptureResult result) {
             //实时回调当前数据
 
-            Integer iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
-            if (iso != null) {
-                if (mOnManualValueListener != null) {
-                    mOnManualValueListener.onIsoChanged(iso);
-                }
+            if (mOnManualValueListener != null) {
+                int iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+                mOnManualValueListener.onIsoChanged(iso);
             }
 
-            Long sec = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-            if (sec != null) {
-                if (mOnManualValueListener != null) {
-                    mOnManualValueListener.onSecChanged(sec);
-                }
+
+            if (mOnManualValueListener != null) {
+                long sec = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                mOnManualValueListener.onSecChanged(sec);
             }
 
-            RggbChannelVector rggbChannelVector = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
-            if (rggbChannelVector != null) {
-                if (mOnManualValueListener != null) {
+            if (mOnManualValueListener != null) {
+                RggbChannelVector rggbChannelVector = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
+                if (rggbChannelVector != null) {
                     int temperature = CameraUtil.rgbToKelvin(rggbChannelVector);
                     try {
                         mOnManualValueListener.onTemperatureChanged(temperature);
@@ -350,6 +347,18 @@ public class Camera2 extends CameraViewImpl {
         } else {
             captureStillPicture();
         }
+    }
+
+    @Override
+    public void takeBurstPictures() {
+        captureBurstPicture();
+    }
+
+    @Override
+    public void stopBurstPicture() {
+        mRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+        mRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+        updatePreview();
     }
 
     @Override
@@ -1230,6 +1239,18 @@ public class Camera2 extends CameraViewImpl {
         mCameraConfig.setOrientation(orientation);
 
         mCaptureController.captureHdrPicture(mCamera, mCaptureSession);
+    }
+
+    private void captureBurstPicture() {
+        @SuppressWarnings("ConstantConditions")
+        int sensorOrientation = mCameraCharacteristics.get(
+                CameraCharacteristics.SENSOR_ORIENTATION);
+        int orientation = (sensorOrientation +
+                mPhoneOrientation * (mCameraConfig.getFacing() == Constants.FACING_FRONT ? -1 : 1) +
+                360) % 360;
+        mCameraConfig.setOrientation(orientation);
+
+        mCaptureController.captureBurstPicture(mCamera, mCaptureSession);
     }
 
     /**

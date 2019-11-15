@@ -279,6 +279,11 @@ public abstract class CameraViewImpl implements ZyCamera {
         return mRecorderController.getMediaRecorder();
     }
 
+    @Override
+    public void stopBurstPicture() {
+
+    }
+
     public String generateVideoFilePath() {
         if (mOnVideoOutputFileListener != null) {
             mCameraConfig.getVideoConfig().setVideoAbsolutePath(mOnVideoOutputFileListener.getVideoOutputFilePath());

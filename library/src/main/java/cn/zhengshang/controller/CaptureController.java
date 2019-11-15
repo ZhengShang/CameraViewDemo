@@ -218,7 +218,7 @@ public class CaptureController {
             }
 
             builder.set(CaptureRequest.JPEG_ORIENTATION, mCameraConfig.getOrientation());
-//            SoundController.getInstance().playSound(SOUND_ID_CLICK);
+            SoundController.getInstance().playSound(SOUND_ID_CLICK);
             // Stop preview and capture a still picture.
 //            session.stopRepeating();
             session.capture(builder.build(), null, mBackgroundHandler);
@@ -311,6 +311,25 @@ public class CaptureController {
             session.stopRepeating();
             session.captureBurst(list, null, mBackgroundHandler);
 
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    public void captureBurstPicture(CameraDevice camera, CameraCaptureSession captureSession) {
+        try {
+            CaptureRequest.Builder builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            builder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CameraMetadata.CONTROL_CAPTURE_INTENT_STILL_CAPTURE);
+            builder.addTarget(mImageReader.getSurface());
+            List<CaptureRequest> request = new ArrayList<>();
+            builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+            builder.set(CaptureRequest.JPEG_ORIENTATION, mCameraConfig.getOrientation());
+            SoundController.getInstance().playSound(SOUND_ID_CLICK);
+            request.add(builder.build());
+            captureSession.setRepeatingBurst(request, null, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
