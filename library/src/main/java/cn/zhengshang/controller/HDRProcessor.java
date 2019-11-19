@@ -25,11 +25,18 @@ import cn.zhengshang.ScriptC_process_hdr;
 
 public class HDRProcessor {
     private static final String TAG = "HDRProcessor";
+
+    private final Context context;
+    private RenderScript rs; // lazily created, so we don't take up resources if application isn't using HDR
+
     // public for access by testing
     public final int[] offsets_x = {0, 0, 0};
     public final int[] offsets_y = {0, 0, 0};
-    private final Context context;
-    private RenderScript rs; // lazily created, so we don't take up resources if application isn't using HDR
+
+    private enum HDRAlgorithm {
+        HDRALGORITHM_STANDARD,
+        HDRALGORITHM_SINGLE_IMAGE
+    }
 
     public HDRProcessor(Context context) {
         this.context = context;
@@ -41,6 +48,106 @@ public class HDRProcessor {
             // problems e.g. when running MainTests as a full set with Camera2 API. Although we now reduce the problem by creating
             // the rs lazily, it's still good to explicitly restore.
             rs.destroy(); // on Android M onwards this is a NOP - instead we call RenderScript.releaseAllContexts(); in CameraActivity.onDestroy()
+        }
+    }
+
+    /**
+     * Given a set of data Xi and Yi, this function estimates a relation between X and Y
+     * using linear least squares.
+     * We use it to modify the pixels of images taken at the brighter or darker exposure
+     * levels, to estimate what the pixel should be at the "base" exposure.
+     */
+    private static class ResponseFunction {
+        float parameter_A;
+        float parameter_B;
+
+        /**
+         * Computes the response function.
+         * We pass the context, so this inner class can be made static.
+         *
+         * @param x_samples List of Xi samples. Must be at least 3 samples.
+         * @param y_samples List of Yi samples. Must be same length as x_samples.
+         * @param weights   List of weights. Must be same length as x_samples.
+         */
+        ResponseFunction(Context context, int id, List<Double> x_samples, List<Double> y_samples, List<Double> weights) {
+
+            if (x_samples.size() != y_samples.size()) {
+                // throw RuntimeException, as this is a programming error
+                throw new RuntimeException();
+            } else if (x_samples.size() != weights.size()) {
+                // throw RuntimeException, as this is a programming error
+                throw new RuntimeException();
+            } else if (x_samples.size() <= 3) {
+                // throw RuntimeException, as this is a programming error
+                throw new RuntimeException();
+            }
+
+            // linear Y = AX + B
+            boolean done = false;
+            double sum_wx = 0.0;
+            double sum_wx2 = 0.0;
+            double sum_wxy = 0.0;
+            double sum_wy = 0.0;
+            double sum_w = 0.0;
+            for (int i = 0; i < x_samples.size(); i++) {
+                double x = x_samples.get(i);
+                double y = y_samples.get(i);
+                double w = weights.get(i);
+                sum_wx += w * x;
+                sum_wx2 += w * x * x;
+                sum_wxy += w * x * y;
+                sum_wy += w * y;
+                sum_w += w;
+            }
+
+            // need to solve:
+            // A . sum_wx + B . sum_w - sum_wy = 0
+            // A . sum_wx2 + B . sum_wx - sum_wxy = 0
+            // =>
+            // A . sum_wx^2 + B . sum_w . sum_wx - sum_wy . sum_wx = 0
+            // A . sum_w . sum_wx2 + B . sum_w . sum_wx - sum_w . sum_wxy = 0
+            // A ( sum_wx^2 - sum_w . sum_wx2 ) = sum_wy . sum_wx - sum_w . sum_wxy
+            // then plug A into:
+            // B . sum_w = sum_wy - A . sum_wx
+            double A_numer = sum_wy * sum_wx - sum_w * sum_wxy;
+            double A_denom = sum_wx * sum_wx - sum_w * sum_wx2;
+            if (Math.abs(A_denom) < 1.0e-5) {
+                // will fall back to linear Y = AX
+            } else {
+                parameter_A = (float) (A_numer / A_denom);
+                parameter_B = (float) ((sum_wy - parameter_A * sum_wx) / sum_w);
+                // we don't want a function that is not monotonic, or can be negative!
+                if (parameter_A < 1.0e-5) {
+                } else if (parameter_B < 1.0e-5) {
+                } else {
+                    done = true;
+                }
+            }
+
+            if (!done) {
+                // linear Y = AX
+                double numer = 0.0;
+                double denom = 0.0;
+                for (int i = 0; i < x_samples.size(); i++) {
+                    double x = x_samples.get(i);
+                    double y = y_samples.get(i);
+                    double w = weights.get(i);
+                    numer += w * x * y;
+                    denom += w * x * x;
+                }
+
+                if (denom < 1.0e-5) {
+                    parameter_A = 1.0f;
+                } else {
+                    parameter_A = (float) (numer / denom);
+                    // we don't want a function that is not monotonic!
+                    if (parameter_A < 1.0e-5) {
+                        parameter_A = 1.0e-5f;
+                    }
+                }
+                parameter_B = 0.0f;
+            }
+
         }
     }
 
@@ -515,6 +622,16 @@ public class HDRProcessor {
 		}*/
     }
 
+    private static class LuminanceInfo {
+        final int median_value;
+        final boolean noisy;
+
+        LuminanceInfo(int median_value, boolean noisy) {
+            this.median_value = median_value;
+            this.noisy = noisy;
+        }
+    }
+
     private LuminanceInfo computeMedianLuminance(Bitmap bitmap, int mtb_x, int mtb_y, int mtb_width, int mtb_height) {
         final int n_samples_c = 100;
         final int n_w_samples = (int) Math.sqrt(n_samples_c);
@@ -783,121 +900,6 @@ public class HDRProcessor {
             histogramAdjustScript.set_height(height);
 
             histogramAdjustScript.forEach_histogram_adjust(allocation_in, allocation_out);
-        }
-    }
-
-    private enum HDRAlgorithm {
-        HDRALGORITHM_STANDARD,
-        HDRALGORITHM_SINGLE_IMAGE
-    }
-
-    /**
-     * Given a set of data Xi and Yi, this function estimates a relation between X and Y
-     * using linear least squares.
-     * We use it to modify the pixels of images taken at the brighter or darker exposure
-     * levels, to estimate what the pixel should be at the "base" exposure.
-     */
-    private static class ResponseFunction {
-        float parameter_A;
-        float parameter_B;
-
-        /**
-         * Computes the response function.
-         * We pass the context, so this inner class can be made static.
-         *
-         * @param x_samples List of Xi samples. Must be at least 3 samples.
-         * @param y_samples List of Yi samples. Must be same length as x_samples.
-         * @param weights   List of weights. Must be same length as x_samples.
-         */
-        ResponseFunction(Context context, int id, List<Double> x_samples, List<Double> y_samples, List<Double> weights) {
-
-            if (x_samples.size() != y_samples.size()) {
-                // throw RuntimeException, as this is a programming error
-                throw new RuntimeException();
-            } else if (x_samples.size() != weights.size()) {
-                // throw RuntimeException, as this is a programming error
-                throw new RuntimeException();
-            } else if (x_samples.size() <= 3) {
-                // throw RuntimeException, as this is a programming error
-                throw new RuntimeException();
-            }
-
-            // linear Y = AX + B
-            boolean done = false;
-            double sum_wx = 0.0;
-            double sum_wx2 = 0.0;
-            double sum_wxy = 0.0;
-            double sum_wy = 0.0;
-            double sum_w = 0.0;
-            for (int i = 0; i < x_samples.size(); i++) {
-                double x = x_samples.get(i);
-                double y = y_samples.get(i);
-                double w = weights.get(i);
-                sum_wx += w * x;
-                sum_wx2 += w * x * x;
-                sum_wxy += w * x * y;
-                sum_wy += w * y;
-                sum_w += w;
-            }
-
-            // need to solve:
-            // A . sum_wx + B . sum_w - sum_wy = 0
-            // A . sum_wx2 + B . sum_wx - sum_wxy = 0
-            // =>
-            // A . sum_wx^2 + B . sum_w . sum_wx - sum_wy . sum_wx = 0
-            // A . sum_w . sum_wx2 + B . sum_w . sum_wx - sum_w . sum_wxy = 0
-            // A ( sum_wx^2 - sum_w . sum_wx2 ) = sum_wy . sum_wx - sum_w . sum_wxy
-            // then plug A into:
-            // B . sum_w = sum_wy - A . sum_wx
-            double A_numer = sum_wy * sum_wx - sum_w * sum_wxy;
-            double A_denom = sum_wx * sum_wx - sum_w * sum_wx2;
-            if (Math.abs(A_denom) < 1.0e-5) {
-                // will fall back to linear Y = AX
-            } else {
-                parameter_A = (float) (A_numer / A_denom);
-                parameter_B = (float) ((sum_wy - parameter_A * sum_wx) / sum_w);
-                // we don't want a function that is not monotonic, or can be negative!
-                if (parameter_A < 1.0e-5) {
-                } else if (parameter_B < 1.0e-5) {
-                } else {
-                    done = true;
-                }
-            }
-
-            if (!done) {
-                // linear Y = AX
-                double numer = 0.0;
-                double denom = 0.0;
-                for (int i = 0; i < x_samples.size(); i++) {
-                    double x = x_samples.get(i);
-                    double y = y_samples.get(i);
-                    double w = weights.get(i);
-                    numer += w * x * y;
-                    denom += w * x * x;
-                }
-
-                if (denom < 1.0e-5) {
-                    parameter_A = 1.0f;
-                } else {
-                    parameter_A = (float) (numer / denom);
-                    // we don't want a function that is not monotonic!
-                    if (parameter_A < 1.0e-5) {
-                        parameter_A = 1.0e-5f;
-                    }
-                }
-                parameter_B = 0.0f;
-            }
-
-        }
-    }
-
-    private static class LuminanceInfo {
-        final int median_value;
-        final boolean noisy;
-
-        LuminanceInfo(int median_value, boolean noisy) {
-            this.median_value = median_value;
-            this.noisy = noisy;
         }
     }
 }

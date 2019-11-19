@@ -2,38 +2,20 @@ package cn.zhengshang.base;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.annotation.NonNull;
-import android.support.v4.util.SparseArrayCompat;
+
+import androidx.annotation.NonNull;
+import androidx.collection.SparseArrayCompat;
 
 /**
  * Immutable class for describing proportional relationship between width and height.
  */
-public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
+public class AspectRatio implements Comparable<AspectRatio>, Parcelable, Cloneable {
 
     private final static SparseArrayCompat<SparseArrayCompat<AspectRatio>> sCache
             = new SparseArrayCompat<>(16);
-    public static final Parcelable.Creator<AspectRatio> CREATOR
-            = new Parcelable.Creator<AspectRatio>() {
 
-        @Override
-        public AspectRatio createFromParcel(Parcel source) {
-            int x = source.readInt();
-            int y = source.readInt();
-            return AspectRatio.of(x, y);
-        }
-
-        @Override
-        public AspectRatio[] newArray(int size) {
-            return new AspectRatio[size];
-        }
-    };
     private final int mX;
     private final int mY;
-
-    private AspectRatio(int x, int y) {
-        mX = x;
-        mY = y;
-    }
 
     /**
      * Returns an instance of {@link AspectRatio} specified by {@code x} and {@code y} values.
@@ -85,14 +67,21 @@ public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
         }
     }
 
-    private static int gcd(int a, int b) {
-        while (b != 0) {
-            int c = b;
-            b = a % b;
-            a = c;
+    public static final Creator<AspectRatio> CREATOR
+            = new Creator<AspectRatio>() {
+
+        @Override
+        public AspectRatio createFromParcel(Parcel source) {
+            int x = source.readInt();
+            int y = source.readInt();
+            return AspectRatio.of(x, y);
         }
-        return a;
-    }
+
+        @Override
+        public AspectRatio[] newArray(int size) {
+            return new AspectRatio[size];
+        }
+    };
 
     public int getX() {
         return mX;
@@ -107,16 +96,6 @@ public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
         int x = size.getWidth() / gcd;
         int y = size.getHeight() / gcd;
         return mX == x && mY == y;
-    }
-
-    public float toFloat() {
-        return (float) mX / mY;
-    }
-
-    @Override
-    public int hashCode() {
-        // assuming most sizes are <2^16, doing a rotate will give us perfect hashing
-        return mY ^ ((mX << (Integer.SIZE / 2)) | (mX >>> (Integer.SIZE / 2)));
     }
 
     @Override
@@ -139,6 +118,20 @@ public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
         return mX + ":" + mY;
     }
 
+    private AspectRatio(int x, int y) {
+        mX = x;
+        mY = y;
+    }
+
+    private static int gcd(int a, int b) {
+        while (b != 0) {
+            int c = b;
+            b = a % b;
+            a = c;
+        }
+        return a;
+    }
+
     @Override
     public int compareTo(@NonNull AspectRatio another) {
         if (equals(another)) {
@@ -157,6 +150,10 @@ public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
         return AspectRatio.of(mY, mX);
     }
 
+    public float toFloat() {
+        return (float) mX / mY;
+    }
+
     @Override
     public int describeContents() {
         return 0;
@@ -166,6 +163,12 @@ public class AspectRatio implements Comparable<AspectRatio>, Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mX);
         dest.writeInt(mY);
+    }
+
+    @Override
+    public int hashCode() {
+        // assuming most sizes are <2^16, doing a rotate will give us perfect hashing
+        return mY ^ ((mX << (Integer.SIZE / 2)) | (mX >>> (Integer.SIZE / 2)));
     }
 
 }

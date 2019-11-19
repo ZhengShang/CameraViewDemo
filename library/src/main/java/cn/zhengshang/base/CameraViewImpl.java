@@ -8,16 +8,19 @@ import android.view.View;
 
 import java.util.List;
 
+import cn.zhengshang.cameraview.R;
 import cn.zhengshang.config.CameraConfig;
-import cn.zhengshang.controller.BroadcastController;
+import cn.zhengshang.config.SPConfig;
 import cn.zhengshang.controller.CaptureController;
 import cn.zhengshang.controller.LensController;
 import cn.zhengshang.controller.MediaRecorderController;
 import cn.zhengshang.listener.CameraCallback;
 import cn.zhengshang.listener.OnAeChangeListener;
 import cn.zhengshang.listener.OnCaptureImageCallback;
+import cn.zhengshang.listener.OnFaceDetectListener;
 import cn.zhengshang.listener.OnManualValueListener;
 import cn.zhengshang.listener.OnVideoOutputFileListener;
+import cn.zhengshang.util.CameraUtil;
 
 public abstract class CameraViewImpl implements ZyCamera {
 
@@ -25,26 +28,26 @@ public abstract class CameraViewImpl implements ZyCamera {
      * 使用 static 来持久化当前引用 , 避免被重建
      */
     protected static CameraConfig mCameraConfig = new CameraConfig();
-    /**
-     * 使用 static 来持久化当前引用 , 避免被重建
-     */
-    private static OnVideoOutputFileListener mOnVideoOutputFileListener;
+
     protected final CameraCallback mCallback;
-    protected final PreviewImpl mPreview;
     protected OnManualValueListener mOnManualValueListener;
     protected OnAeChangeListener mOnAeChangeListener;
     protected OnCaptureImageCallback mOnCaptureImageCallback;
+    private static OnVideoOutputFileListener mOnVideoOutputFileListener;
+    protected final PreviewImpl mPreview;
     protected Context mContext;
+    protected OnFaceDetectListener mOnFaceDetectListener;
     protected Handler mBackgroundHandler;
     /**
      * 手机当前的方向.
      */
     protected int mPhoneOrientation;
-    protected CaptureController mCaptureController;
-    protected long mAvailableSpace;
-    protected MediaRecorderController mRecorderController;
+    protected volatile boolean mRestartForRecord;
     private HandlerThread mBackgroundThread;
+    private long mAvailableSpace;
     private LensController mLensController;
+    protected CaptureController mCaptureController;
+    protected MediaRecorderController mRecorderController;
 
 
     public CameraViewImpl(Context context, CameraCallback callback, PreviewImpl preview) {
@@ -52,30 +55,33 @@ public abstract class CameraViewImpl implements ZyCamera {
         mCallback = callback;
         mPreview = preview;
         mLensController = new LensController(this);
-        mRecorderController = new MediaRecorderController(this, mCameraConfig);
     }
 
     @Override
     public void start() {
         startBackgroundThread();
+        mRecorderController = new MediaRecorderController(this, mCameraConfig);
     }
 
     @Override
     public void stop() {
         stopBackgroundThread();
+        if (mRecorderController != null) {
+            mRecorderController.release();
+        }
     }
 
     public View getView() {
         return mPreview.getView();
     }
 
+    public float getFpsWithSize(android.util.Size size) {
+        return Constants.DEF_FPS;
+    }
+
     @Override
     public int getFacing() {
         return mCameraConfig.getFacing();
-    }
-
-    public float getFpsWithSize(android.util.Size size) {
-        return Constants.DEF_FPS;
     }
 
     @Override
@@ -88,10 +94,63 @@ public abstract class CameraViewImpl implements ZyCamera {
         return mCameraConfig.isAutoFocus();
     }
 
+    /**
+     * 手机剩余空间是否不够.空间不够的话,无法进行视频录制.
+     * @return TRUE不够, FALSE够.
+     */
+    protected boolean lowAvailableSpace() {
+        long availableSpace = CameraUtil.getAvailableSpace();
+        if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
+            Context context = getView().getContext();
+            CameraUtil.showBlackToast(context, context.getString(R.string.spaceIsLow_content), mPhoneOrientation);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean isSupportedStabilize() {
+        return mCameraConfig.getPhotoConfig().isStabilization() ||
+                mCameraConfig.getVideoConfig().isStabilization();
+    }
+
+    protected int caleVideoOrientation(int sensorOrientation) {
+        boolean isFacing = (getFacing() == Constants.FACING_FRONT);
+        int orientation = (sensorOrientation + mPhoneOrientation * (isFacing ? -1 : 1) + 360) % 360;
+        if (isFacing) {
+//            orientation = FROUT_ORIENTATIONS.get(orientation);
+            orientation = (360 - orientation) % 360;
+        }
+
+        return orientation;
+        //distinct
+    }
+
+    @Override
+    public boolean getStabilizeEnable() {
+        return mCameraConfig.isStabilization();
+    }
+
+    @Override
+    public void setStabilizeEnable(boolean enable) {
+        mCameraConfig.setStabilization(enable);
+    }
+
     @Override
     public int getFlash() {
         return mCameraConfig.getFlash();
     }
+
+    public abstract void setTorch(boolean open);
+
+    public abstract boolean isTorch();
+
+    public abstract void takePicture();
+
+    public abstract void takeBurstPictures();
+
+    public abstract void stopBurstPicture();
+
 
     /**
      * 双指在屏幕上缩放视图大小
@@ -106,16 +165,21 @@ public abstract class CameraViewImpl implements ZyCamera {
         mCameraConfig.getVideoConfig().setPlaySound(playSound);
     }
 
-    public boolean getMuteVideo() {
-        return mCameraConfig.getVideoConfig().isMute();
-    }
-
     public void setMuteVideo(boolean muteVideo) {
         mCameraConfig.getVideoConfig().setMute(muteVideo);
     }
 
+    public boolean getMuteVideo() {
+        return mCameraConfig.getVideoConfig().isMute();
+    }
+
     public long getAvailableSpace() {
         return mAvailableSpace;
+    }
+
+    @Override
+    public void setAvailableSpace(long availableSpace) {
+        mAvailableSpace = availableSpace;
     }
 
     public boolean isRecordingVideo() {
@@ -126,26 +190,22 @@ public abstract class CameraViewImpl implements ZyCamera {
         return mCameraConfig.getVideoConfig().getBitrate();
     }
 
-    public void setBitrate(int bitrate) {
-        //查看推荐分辨率下的当前码率，谁大用哪个。
-        int recommendBitRate = mCameraConfig.getVideoConfig().getSize().getRecommendBitRateFromCamcorder(getFacing());
-        if (bitrate > recommendBitRate) {
-            mCameraConfig.getVideoConfig().setBitrate(bitrate);
-        } else {
-            mCameraConfig.getVideoConfig().setBitrate(recommendBitRate);
-        }
+    public void setCaptureRate(double rate) {
+        mCameraConfig.getVideoConfig().setCaptureRate(rate);
+        SPConfig.getInstance().saveCaptureRate(rate);
     }
 
     public double getCaptureRate() {
         return mCameraConfig.getVideoConfig().getCaptureRate();
     }
 
-    public void setCaptureRate(double rate) {
-        mCameraConfig.getVideoConfig().setCaptureRate(rate);
-    }
-
     public String getVideoOutputFilePath() {
         return mCameraConfig.getVideoConfig().getVideoAbsolutePath();
+    }
+
+    @Override
+    public int getCaptureOrientation() {
+        return mCameraConfig.getOrientation();
     }
 
     public int getAwbMode() {
@@ -180,13 +240,38 @@ public abstract class CameraViewImpl implements ZyCamera {
         return mCameraConfig.getZoomRatio();
     }
 
+    @Override
+    public void startSmoothZoom(float start, float end, long duration) {
+        mLensController.startSmoothZoom(start, end, duration);
+    }
+
+    @Override
+    public void stopSmoothZoom() {
+        mLensController.stopSmoothZoom();
+    }
+
     public void stopSmoothFocus() {
         mLensController.stopSmoothFocus();
+    }
+
+    public void setBitrate(int bitrate) {
+        //查看推荐分辨率下的当前码率，谁大用哪个。
+        int recommendBitRate = mCameraConfig.getVideoConfig().getSize().getRecommendBitRateFromCamcorder(getFacing());
+        if (bitrate > recommendBitRate) {
+            mCameraConfig.getVideoConfig().setBitrate(bitrate);
+        } else {
+            mCameraConfig.getVideoConfig().setBitrate(recommendBitRate);
+        }
+        SPConfig.getInstance().saveBitrate(bitrate);
     }
 
     public List<Integer> getZoomRatios() {
         return null;
     }
+
+    public abstract void scaleZoom(float scale);
+
+    public abstract String getCameraAPI();
 
     public void zoomIn() {
         gestureScaleZoom(0.989f);
@@ -212,16 +297,14 @@ public abstract class CameraViewImpl implements ZyCamera {
         return mCameraConfig.getVideoConfig().getSize();
     }
 
-    public void setVideoSize(Size size) {
-        if (getVideoSize() != size) {
-            mCameraConfig.getVideoConfig().setSize(size);
-
-            if (size.getFps() > 30) {
-                BroadcastController.sendSwitchToHighSpeedVideoAction(mContext);
-            }
+    public void setVideoSize(Size size, boolean save) {
+        mCameraConfig.getVideoConfig().setSize(size);
+        mCameraConfig.getVideoConfig().setFps(size.getFps());
+        if (save) {
+            SPConfig.getInstance().saveVideoSize(size);
         }
-
     }
+
 
     public int getFps() {
         return mCameraConfig.getVideoConfig().getFps();
@@ -244,19 +327,8 @@ public abstract class CameraViewImpl implements ZyCamera {
     }
 
     @Override
-    public boolean isSupportedStabilize() {
-        return mCameraConfig.getPhotoConfig().isStabilization() ||
-                mCameraConfig.getVideoConfig().isStabilization();
-    }
-
-    @Override
-    public boolean getStabilizeEnable() {
-        return mCameraConfig.isStabilization();
-    }
-
-    @Override
-    public void setStabilizeEnable(boolean enable) {
-        mCameraConfig.setStabilization(enable);
+    public boolean isSupportedHdr() {
+        return false;
     }
 
     public boolean isManualMode() {
@@ -267,21 +339,16 @@ public abstract class CameraViewImpl implements ZyCamera {
         mLensController.startSmoothFocus(start, end, duration);
     }
 
-    public int getPhoneOrientation() {
-        return mPhoneOrientation;
-    }
-
     public void setPhoneOrientation(int orientation) {
         mPhoneOrientation = orientation;
     }
 
-    public MediaRecorder getMediaRecorder() {
-        return mRecorderController.getMediaRecorder();
+    public int getPhoneOrientation() {
+        return mPhoneOrientation;
     }
 
-    @Override
-    public void stopBurstPicture() {
-
+    public MediaRecorder getMediaRecorder() {
+        return mRecorderController.getMediaRecorder();
     }
 
     public String generateVideoFilePath() {
@@ -309,10 +376,16 @@ public abstract class CameraViewImpl implements ZyCamera {
         mOnVideoOutputFileListener = onVideoOutputFileListener;
     }
 
+    @Override
+    public void addOnFaceDetectListener(OnFaceDetectListener onFaceDetectListener) {
+        mOnFaceDetectListener = onFaceDetectListener;
+    }
+
     protected void prepareImageReader() {
         mCaptureController = new CaptureController(mCameraConfig, mBackgroundHandler, mContext, mCallback);
         mCaptureController.prepareImageReader();
     }
+
 
     /**
      * Starts a background thread and its {@link Handler}.
@@ -338,5 +411,14 @@ public abstract class CameraViewImpl implements ZyCamera {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+    }
+
+
+    public CameraConfig getCameraConfig() {
+        return mCameraConfig;
+    }
+
+    public void setCameraConfig(CameraConfig cameraConfig) {
+        CameraViewImpl.mCameraConfig = cameraConfig;
     }
 }

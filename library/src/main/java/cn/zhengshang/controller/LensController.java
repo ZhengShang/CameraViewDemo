@@ -2,22 +2,22 @@ package cn.zhengshang.controller;
 
 import android.animation.ValueAnimator;
 
-import cn.zhengshang.base.CameraViewImpl;
+import cn.zhengshang.base.ZyCamera;
 
 public class LensController {
 
-    private CameraViewImpl mCamera;
+    private ZyCamera mCamera;
     private ValueAnimator mSmoothFocusAnim;
+    private ValueAnimator mSmoothZoomAnim;
 
-    public LensController(CameraViewImpl camera) {
+    public LensController(ZyCamera camera) {
         mCamera = camera;
     }
 
     /**
      * 开始顺滑对焦
-     *
-     * @param start    起始焦点af
-     * @param end      结束焦点af
+     * @param start 起始焦点af
+     * @param end 结束焦点af
      * @param duration 变化的时间
      */
     public void startSmoothFocus(final float start, final float end, long duration) {
@@ -30,20 +30,39 @@ public class LensController {
             mSmoothFocusAnim.setInterpolator(null);
         }
         mSmoothFocusAnim.removeAllUpdateListeners();
-        mSmoothFocusAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                float value = (float) animation.getAnimatedValue();
-                float af;
-                af = start + value * (end - start);
-                af = Math.round(af * 10) / 10f;
-                mCamera.setAFValue(af);
-            }
+        mSmoothFocusAnim.addUpdateListener(animation -> {
+            float value = (float) animation.getAnimatedValue();
+            float af;
+            af = start + value * (end - start);
+            af = Math.round(af * 10) / 10f;
+            mCamera.setAFValue(af);
         });
         mSmoothFocusAnim.setDuration(duration);
         mSmoothFocusAnim.start();
     }
 
+    public void startSmoothZoom(float start, float end, long duration) {
+        stopSmoothZoom();
+        if (start == end) {
+            return;
+        }
+
+        mSmoothZoomAnim = ValueAnimator.ofFloat(start, end);
+        mSmoothZoomAnim.setInterpolator(null);
+        mSmoothZoomAnim.removeAllUpdateListeners();
+        mSmoothZoomAnim.addUpdateListener(animation -> {
+            float scale = (float) animation.getAnimatedValue();
+            mCamera.scaleZoom(scale);
+        });
+        mSmoothZoomAnim.setDuration(duration);
+        mSmoothZoomAnim.start();
+    }
+
+    public void stopSmoothZoom() {
+        if (mSmoothZoomAnim != null) {
+            mSmoothZoomAnim.cancel();
+        }
+    }
 
     /**
      * 结束顺滑对焦

@@ -17,32 +17,12 @@ public class VolumeTask {
     private MediaRecorder mMediaRecorder;
 
     private OnVolumeListener mOnVolumeListener;
-    private Runnable mRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (mOnVolumeListener != null) {
 
-                double db = 0;
-                if (mMediaRecorder != null) {
-                    db = 20 * Math.log10(mMediaRecorder.getMaxAmplitude() / 0.1f);
-                }
-
-                mOnVolumeListener.onRecordingVolume((int) db);
-            }
-
-            mWorkHandler.postDelayed(this, 1000);
-        }
-    };
     private Callback mCallback = new Callback() {
 
         @Override
         public void onCameraOpened(CameraView cameraView) {
             startThread();
-        }
-
-        @Override
-        public void onCameraClosed(CameraView cameraView) {
-            quitThread();
         }
 
         @Override
@@ -59,6 +39,11 @@ public class VolumeTask {
         @Override
         public void onVideoRecordingFailed(CameraView cameraView) {
             stop();
+        }
+
+        @Override
+        public void onCameraClosed(CameraView cameraView) {
+            quitThread();
         }
     };
 
@@ -92,6 +77,23 @@ public class VolumeTask {
     public void start() {
         mWorkHandler.post(mRunnable);
     }
+
+    private Runnable mRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mOnVolumeListener != null) {
+
+                double db = 0;
+                if (mMediaRecorder != null) {
+                    db = 20 * Math.log10(mMediaRecorder.getMaxAmplitude() / 0.1f);
+                }
+
+                mOnVolumeListener.onRecordingVolume((int) db);
+            }
+
+            mWorkHandler.postDelayed(this, 1000);
+        }
+    };
 
     public void stop() {
         mWorkHandler.removeCallbacks(mRunnable);

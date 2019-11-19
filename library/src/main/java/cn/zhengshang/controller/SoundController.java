@@ -19,6 +19,10 @@ public class SoundController {
 
     }
 
+    private static class SingletonHolder {
+        private static final SoundController INSTANCE = new SoundController();
+    }
+
     public static SoundController getInstance() {
         return SingletonHolder.INSTANCE;
     }
@@ -65,10 +69,6 @@ public class SoundController {
             mMediaActionSound.release();
             mMediaActionSound = null;
         }
-    }
-
-    private static class SingletonHolder {
-        private static final SoundController INSTANCE = new SoundController();
     }
 
 }

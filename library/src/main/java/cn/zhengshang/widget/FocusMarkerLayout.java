@@ -15,10 +15,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.SystemClock;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.content.LocalBroadcastManager;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.GestureDetector;
@@ -28,13 +24,17 @@ import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import cn.zhengshang.base.CameraViewImpl;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+
+import cn.zhengshang.base.ZyCamera;
 import cn.zhengshang.cameraview.CameraView;
 import cn.zhengshang.cameraview.R;
 import cn.zhengshang.util.CameraUtil;
 
 import static cn.zhengshang.base.Constants.BROADCAST_ACTION_RECORING_STOP;
-import static cn.zhengshang.base.Constants.BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO;
 import static cn.zhengshang.base.Constants.BROADCAST_ACTION_TAKE_PHOTO;
 import static cn.zhengshang.cameraview.CameraView.GRID_CENTER_POINT;
 import static cn.zhengshang.cameraview.CameraView.GRID_DIAGONAL;
@@ -45,7 +45,7 @@ import static cn.zhengshang.cameraview.CameraView.GRID_NONE;
 @TargetApi(14)
 public class FocusMarkerLayout extends FrameLayout {
 
-    private CameraViewImpl mImpl;
+    private ZyCamera mZyCamera;
     private View mFocusMarkerContainer;
     private View mFocusLayout;
     private AEsun mAEsun;
@@ -60,6 +60,10 @@ public class FocusMarkerLayout extends FrameLayout {
     private int mRotation;
 
     private boolean mEnableScaleZoom = true;
+
+    public FocusMarkerLayout(@NonNull Context context) {
+        this(context, null);
+    }
     /**
      * 使用广播接收{CaptureController#mOnImageAvailableListener}拍照完成的回调,以便调用本来的capture()方法.
      * 播放背景色闪烁动画.
@@ -80,16 +84,9 @@ public class FocusMarkerLayout extends FrameLayout {
                 case BROADCAST_ACTION_RECORING_STOP:
                     mFocusMarkerContainer.setAlpha(0);
                     break;
-                case BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO:
-                    switchCamera();
-                    break;
             }
         }
     };
-
-    public FocusMarkerLayout(@NonNull Context context) {
-        this(context, null);
-    }
 
     public FocusMarkerLayout(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -107,16 +104,7 @@ public class FocusMarkerLayout extends FrameLayout {
         mGestureDetector = new GestureDetector(context, new MyGestureListener());
         mScaleGestureDetector = new ScaleGestureDetector(context, new ScaleGestureListener());
 
-        mAEsun.setOnAEChangeListener(new AEsun.OnAEChangeListener() {
-            @Override
-            public void onAEchanged(int ae) {
-                mImpl.setAEValue(ae);
-            }
-        });
-    }
-
-    public void setImpl(CameraViewImpl impl) {
-        mImpl = impl;
+        mAEsun.setOnAEChangeListener(ae -> mZyCamera.setAEValue(ae));
     }
 
     public void setRotation(int rotation) {
@@ -124,8 +112,8 @@ public class FocusMarkerLayout extends FrameLayout {
         mFocusMarkerContainer.setRotation(90 * (3 - rotation));
     }
 
-    public void setMaxAeRange(int maxAe) {
-        mAEsun.setMaxAeRange(maxAe);
+    public void setImpl(ZyCamera impl) {
+        mZyCamera = impl;
     }
 
     public FocusMarkerLayout setEnableScaleZoom(boolean enableScaleZoom) {
@@ -196,6 +184,22 @@ public class FocusMarkerLayout extends FrameLayout {
         animator.start();
     }
 
+    public void setMaxAeRange(int maxAe) {
+        post(() -> mAEsun.setMaxAeRange(maxAe));
+    }
+
+    public void blurPreview(Bitmap bitmap) {
+        if (bitmap == null) {
+            return;
+        }
+        Bitmap blur = CameraUtil.fastblur(bitmap, 0.5f, 60);
+        post(() -> {
+            setBackground(new BitmapDrawable(getResources(), blur));
+            setAlpha(0);
+            animate().alpha(1);
+        });
+    }
+
     private void focus(float mx, float my) {
         int x = (int) (mx - mFocusMarkerContainer.getWidth() / 2);
         int y = (int) (my - mFocusMarkerContainer.getWidth() / 2);
@@ -249,6 +253,19 @@ public class FocusMarkerLayout extends FrameLayout {
                 R.drawable.ic_camera_photography_centel)).getBitmap();
     }
 
+    /**
+     * 切换相机镜头或者其他模式的动画
+     */
+    public void switchCamera() {
+        post(() -> {
+            ObjectAnimator animator = ObjectAnimator.ofArgb(
+                    FocusMarkerLayout.this, "BackgroundColor", Color.DKGRAY, Color.TRANSPARENT);
+            animator.setInterpolator(null);
+            animator.setStartDelay(500);
+            animator.start();
+        });
+    }
+
     private void drawGridLines(Canvas canvas) {
         //横线
         canvas.drawLine(0, getHeight() / 3, getWidth(), getHeight() / 3, mPaint);
@@ -258,24 +275,12 @@ public class FocusMarkerLayout extends FrameLayout {
         canvas.drawLine(2 * getWidth() / 3, 0, 2 * getWidth() / 3, getHeight(), mPaint);
     }
 
-    /**
-     * 切换相机镜头或者其他模式的动画
-     */
-    private void switchCamera() {
-        setBackgroundColor(Color.DKGRAY);
-        ObjectAnimator animator = ObjectAnimator.ofArgb(
-                FocusMarkerLayout.this, "BackgroundColor", Color.DKGRAY, Color.TRANSPARENT);
-        animator.setStartDelay(500);
-        animator.start();
-    }
-
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(BROADCAST_ACTION_TAKE_PHOTO);
         intentFilter.addAction(BROADCAST_ACTION_RECORING_STOP);
-        intentFilter.addAction(BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO);
         LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
     }
 
@@ -287,13 +292,13 @@ public class FocusMarkerLayout extends FrameLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (mImpl == null) {
+        if (mZyCamera == null) {
             return true;
         }
-        if (!mImpl.isCameraOpened()) {
+        if (!mZyCamera.isCameraOpened()) {
             return true;
         }
-        if (mImpl.isManualMode()) {
+        if (mZyCamera.isManualMode()) {
             return true;
         }
         mGestureDetector.onTouchEvent(event);
@@ -342,10 +347,6 @@ public class FocusMarkerLayout extends FrameLayout {
     }
 
     private class ScaleGestureListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
-        /**
-         * Minimum time between calls to zoom listener.
-         */
-        private static final long ZOOM_MINIMUM_WAIT_MILLIS = 33;
         private float mCurrentRatio;
         private float mMinRatio = 1.0f;
         private float mMaxRatio;
@@ -353,12 +354,16 @@ public class FocusMarkerLayout extends FrameLayout {
          * Next time zoom change should be sent to listener.
          */
         private long mDelayZoomCallUntilMillis = 0;
+        /**
+         * Minimum time between calls to zoom listener.
+         */
+        private static final long ZOOM_MINIMUM_WAIT_MILLIS = 33;
 
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
-            if (mImpl.isManualWTSupported()) {
+            if (mZyCamera.isManualWTSupported()) {
                 if (mMaxRatio == 0) {
-                    mMaxRatio = mImpl.getMaxZoom();
+                    mMaxRatio = mZyCamera.getMaxZoom();
                 }
 
                 final float sf = detector.getScaleFactor();
@@ -377,8 +382,7 @@ public class FocusMarkerLayout extends FrameLayout {
                 // updating the zoom level and other controls.
                 long now = SystemClock.uptimeMillis();
                 if (now > mDelayZoomCallUntilMillis) {
-
-                    mImpl.scaleZoom(mCurrentRatio);
+                    mZyCamera.scaleZoom(mCurrentRatio);
                     mDelayZoomCallUntilMillis = now + ZOOM_MINIMUM_WAIT_MILLIS;
                 }
             }
@@ -397,18 +401,18 @@ public class FocusMarkerLayout extends FrameLayout {
         public boolean onSingleTapUp(MotionEvent e) {
             unLockAEandAF();
             focus(e.getX(), e.getY());
-            mImpl.unLockAEandAF();
-            mImpl.resetAF(e, false);
+            mZyCamera.unLockAEandAF();
+            mZyCamera.resetAF(e, false);
             return super.onSingleTapUp(e);
         }
 
         @Override
         public void onLongPress(MotionEvent e) {
             unLockAEandAF();
-            mImpl.unLockAEandAF();
+            mZyCamera.unLockAEandAF();
             focus(e.getX(), e.getY());
             lockAEandAF();
-            mImpl.resetAF(e, true);
+            mZyCamera.resetAF(e, true);
         }
 
         @Override
@@ -420,10 +424,10 @@ public class FocusMarkerLayout extends FrameLayout {
                 return true;
             }
             if (mAEsun.getMaxAe() == 0) {
-                if (mImpl.getAERange() == null) {
+                if (mZyCamera.getAERange() == null) {
                     return true;
                 }
-                mAEsun.setMaxAeRange(mImpl.getAERange().getUpper());
+                mAEsun.setMaxAeRange(mZyCamera.getAERange().getUpper());
             }
             if (mRotation == 0) {
                 adjustAe((int) distanceX);

@@ -2,29 +2,28 @@ package cn.zhengshang.cameraview;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.hardware.Camera;
 import android.os.Build;
-import android.preference.PreferenceManager;
-import android.support.v4.util.SparseArrayCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Range;
-import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import androidx.collection.SparseArrayCompat;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +31,7 @@ import java.util.regex.Pattern;
 import cn.zhengshang.base.AspectRatio;
 import cn.zhengshang.base.CameraViewImpl;
 import cn.zhengshang.base.Constants;
+import cn.zhengshang.base.Face;
 import cn.zhengshang.base.PreviewImpl;
 import cn.zhengshang.base.Size;
 import cn.zhengshang.base.SizeMap;
@@ -51,7 +51,6 @@ import static cn.zhengshang.base.Constants.AWB_MODE_SHADE;
 import static cn.zhengshang.base.Constants.AWB_MODE_TWILIGHT;
 import static cn.zhengshang.base.Constants.AWB_MODE_WARM_FLUORESCENT;
 import static cn.zhengshang.base.Constants.CAMERA_API_CAMERA1;
-import static cn.zhengshang.base.Constants.FOCUS_AREA_SIZE_DEFAULT;
 import static cn.zhengshang.base.Constants.FOCUS_METERING_AREA_WEIGHT_DEFAULT;
 import static cn.zhengshang.controller.SoundController.SOUND_ID_CLICK;
 
@@ -72,17 +71,26 @@ public class Camera1 extends CameraViewImpl {
         FLASH_MODES.put(Constants.FLASH_RED_EYE, Camera.Parameters.FLASH_MODE_RED_EYE);
     }
 
-    private final AtomicBoolean isPictureCaptureInProgress = new AtomicBoolean(false);
-    private final Camera.CameraInfo mCameraInfo = new Camera.CameraInfo();
-    private final SizeMap mPreviewSizes = new SizeMap();
-    private final SizeMap mPictureSizes = new SizeMap();
     private final Object mCameraLock = new Object();
+
+    private final AtomicBoolean isPictureCaptureInProgress = new AtomicBoolean(false);
     private int mCameraId;
     private Camera mCamera;
-    private Camera.Parameters mCameraParameters;
+
+    private final Camera.CameraInfo mCameraInfo = new Camera.CameraInfo();
+
+    private final SizeMap mPreviewSizes = new SizeMap();
+
+    private final SizeMap mPictureSizes = new SizeMap();
+
     private boolean mShowingPreview;
+
     private int mDisplayOrientation;
-    private Choreographer.FrameCallback mZoomFrameCallback;
+    private Camera.Parameters mCameraParameters;
+    private int videoOrientation;
+    private Matrix mMatrix = new Matrix();
+    private boolean mBurst;
+
     private Runnable mContiousFocusRunnable = new Runnable() {
         @Override
         public void run() {
@@ -114,15 +122,78 @@ public class Camera1 extends CameraViewImpl {
     public Camera1(Context context, CameraCallback callback, PreviewImpl preview) {
         super(context, callback, preview);
 
-        preview.setCallback(new PreviewImpl.Callback() {
-            @Override
-            public void onSurfaceChanged() {
-                if (mCamera != null) {
-                    setUpPreview();
-                    adjustCameraParameters();
-                }
+        preview.setCallback(() -> {
+            if (mCamera != null) {
+                setUpPreview();
+                adjustCameraParameters();
             }
         });
+    }
+
+    @Override
+    public void stop() {
+        if (mCameraConfig.isRecordingVideo()) {
+            mCameraConfig.setRecordingVideo(false);
+            mCallback.onVideoRecordStoped();
+        }
+        if (mCamera != null) {
+            mCamera.stopPreview();
+        }
+        mShowingPreview = false;
+        releaseCamera();
+        super.stop();
+    }
+
+    // Suppresses Camera#setPreviewTexture
+    @SuppressLint("NewApi")
+    private void setUpPreview() {
+        try {
+            if (mPreview.getOutputClass() == SurfaceHolder.class) {
+                mCamera.setPreviewDisplay(mPreview.getSurfaceHolder());
+            } else {
+                mCamera.setPreviewTexture(mPreview.getSurfaceTexture());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public boolean isCameraOpened() {
+        return mCamera != null;
+    }
+
+    @Override
+    public void setFacing(int facing) {
+        if (mCameraConfig.getFacing() == facing) {
+            return;
+        }
+        mCameraConfig.setFacing(facing);
+        if (isCameraOpened()) {
+            stop();
+            start();
+        }
+    }
+
+    @Override
+    public String getCameraId() {
+        return String.valueOf(mCameraId);
+    }
+
+    @Override
+    public Set<AspectRatio> getSupportedAspectRatios() {
+        SizeMap idealAspectRatios = mPreviewSizes;
+        for (AspectRatio aspectRatio : idealAspectRatios.ratios()) {
+            if (mPictureSizes.sizes(aspectRatio) == null) {
+                idealAspectRatios.remove(aspectRatio);
+            }
+        }
+        return idealAspectRatios.ratios();
+    }
+
+    @Override
+    public SortedSet<Size> getSupportedPicSizes() {
+        return mPictureSizes.sizes(mCameraConfig.getAspectRatio());
     }
 
     private static int calculateCenter(float coord, int dimen, int buffer) {
@@ -140,6 +211,7 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void start() {
+        super.start();
         chooseCamera();
         openCamera();
         if (mCamera == null) {
@@ -151,34 +223,31 @@ public class Camera1 extends CameraViewImpl {
         }
         mShowingPreview = true;
         startPreview();
+        prepareImageReader();
     }
 
     @Override
-    public void stop() {
-        if (mCameraConfig.isRecordingVideo()) {
-            mCameraConfig.setRecordingVideo(false);
-            mCallback.onVideoRecordStoped();
+    public boolean setAspectRatio(AspectRatio ratio) {
+        if (mCameraConfig.getAspectRatio() == null || !isCameraOpened()) {
+            // Handle this later when camera is opened
+            mCameraConfig.setAspectRatio(ratio);
+            return true;
+        } else if (!mCameraConfig.getAspectRatio().equals(ratio)) {
+            final Set<Size> sizes = mPreviewSizes.sizes(ratio);
+            if (sizes == null) {
+                throw new UnsupportedOperationException(ratio + " is not supported");
+            } else {
+                mCameraConfig.setAspectRatio(ratio);
+                adjustCameraParameters();
+                return true;
+            }
         }
-        mRecorderController.release();
-        if (mCamera != null) {
-            mCamera.stopPreview();
-        }
-        mShowingPreview = false;
-        releaseCamera();
+        return false;
     }
 
     @Override
     public AspectRatio getAspectRatio() {
         return mCameraConfig.getAspectRatio();
-    }
-
-    @Override
-    public boolean getAutoFocus() {
-        if (!isCameraOpened()) {
-            return mCameraConfig.isAutoFocus();
-        }
-        String focusMode = mCameraParameters.getFocusMode();
-        return focusMode != null && focusMode.contains("continuous");
     }
 
     @Override
@@ -189,8 +258,40 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public boolean isFlashAvailable() {
-        return mCameraParameters.getSupportedFlashModes() != null;
+    public boolean getAutoFocus() {
+        if (!isCameraOpened()) {
+            return mCameraConfig.isAutoFocus();
+        }
+        if (mCameraParameters == null) {
+            return false;
+        }
+        String focusMode = mCameraParameters.getFocusMode();
+        return focusMode != null && focusMode.contains("continuous");
+    }
+
+    @Override
+    public boolean isSupportedStabilize() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return mCameraParameters.isVideoStabilizationSupported();
+    }
+
+    @Override
+    public boolean getStabilizeEnable() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return mCameraParameters.getVideoStabilization();
+    }
+
+    @Override
+    public void setStabilizeEnable(boolean enable) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraParameters.setVideoStabilization(enable);
+        setParameters();
     }
 
     @Override
@@ -209,45 +310,11 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public boolean isTorch() {
-        return mCameraParameters != null && Camera.Parameters.FLASH_MODE_TORCH.equals(mCameraParameters.getFlashMode());
-    }
-
-    @Override
     public void setTorch(boolean open) {
         if (mCameraParameters != null) {
             mCameraParameters.setFlashMode(open ? Camera.Parameters.FLASH_MODE_TORCH : Camera.Parameters.FLASH_MODE_OFF);
             setParameters();
         }
-    }
-
-    @Override
-    public void takePicture() {
-        if (!isCameraOpened()) {
-            Log.e("Camera1", "takePicture: Camera is not ready. Call start() before takePicture().");
-            return;
-        }
-        try {
-            if (getAutoFocus()) {
-                //某些手机,如(MX2)等,cancelAutoFocus有概率failed.所以用了try catch
-                mCamera.cancelAutoFocus();
-                mCamera.autoFocus(new Camera.AutoFocusCallback() {
-                    @Override
-                    public void onAutoFocus(boolean success, Camera camera) {
-                        takePictureInternal();
-                    }
-                });
-            } else {
-                takePictureInternal();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Override
-    public void takeBurstPictures() {
-
     }
 
     @Override
@@ -319,7 +386,15 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public boolean isTorch() {
+        return mCameraParameters != null && Camera.Parameters.FLASH_MODE_TORCH.equals(mCameraParameters.getFlashMode());
+    }
+
+    @Override
     public void lockAEandAF() {
+        if (mCameraParameters == null) {
+            return;
+        }
         getView().removeCallbacks(mContiousFocusRunnable);
         mCameraParameters.setAutoExposureLock(true);
         mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
@@ -327,17 +402,120 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
+    public void takePicture() {
+        if (!isCameraOpened()) {
+            Log.e("Camera1", "takePicture: Camera is not ready. Call start() before takePicture().");
+            return;
+        }
+        try {
+            if (getAutoFocus()) {
+                //某些手机,如(MX2)等,cancelAutoFocus有概率failed.所以用了try catch
+                mCamera.cancelAutoFocus();
+                mCamera.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean success, Camera camera) {
+                        takePictureInternal();
+                    }
+                });
+            } else {
+                takePictureInternal();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
     public void unLockAEandAF() {
+        if (mCameraParameters == null) {
+            return;
+        }
         mCameraParameters.setAutoExposureLock(false);
 //        mCameraParameters.setExposureCompensation(0);
         setParameters();
     }
 
     @Override
+    public void takeBurstPictures() {
+        mBurst = true;
+        mBackgroundHandler.post(new Runnable() {
+            Matrix matrix = new Matrix();
+
+            @Override
+            public void run() {
+                Size size = mCameraConfig.getPhotoConfig().getSize();
+                while (mBurst) {
+                    Bitmap frameBitmap = mPreview.getFrameBitmap(size.getWidth(), size.getHeight());
+
+                    matrix.reset();
+                    matrix.postRotate(calculateCaptureRotation());
+                    Bitmap rotatedBitmap = Bitmap.createBitmap(frameBitmap, 0, 0, frameBitmap.getWidth(), frameBitmap.getHeight(), matrix, true);
+
+                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                    rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                    byte[] byteArray = stream.toByteArray();
+                    frameBitmap.recycle();
+                    mCallback.onPictureTaken(byteArray);
+                    BroadcastController.sendTakePhotoAction(mContext);
+                    SoundController.getInstance().playSound(SOUND_ID_CLICK);
+                }
+            }
+        });
+    }
+
+    @Override
+    public void setAWBMode(int mode) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.setAwb(mode);
+        switch (mode) {
+            case AWB_MODE_OFF: //OFF， 手动模式
+                break;
+            case AWB_MODE_AUTO:             // 自动
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_AUTO);
+                break;
+            case AWB_MODE_INCANDESCENT: // 白炽灯
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_INCANDESCENT);
+                break;
+            case AWB_MODE_FLUORESCENT: // 荧光灯
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_FLUORESCENT);
+                break;
+            case AWB_MODE_WARM_FLUORESCENT: // 温暖的荧光灯
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_WARM_FLUORESCENT);
+                break;
+            case AWB_MODE_DAYLIGHT: // 晴天
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_DAYLIGHT);
+                break;
+            case AWB_MODE_CLOUDY_DAYLIGHT: // 阴天
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT);
+                break;
+            case AWB_MODE_TWILIGHT: //黄昏
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_TWILIGHT);
+                break;
+            case AWB_MODE_SHADE: //阴影
+                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_SHADE);
+                break;
+        }
+        setParameters();
+    }
+
+    @Override
+    public void stopBurstPicture() {
+        mBurst = false;
+    }
+
+    @Override
     public void startRecordingVideo(boolean triggerCallback) {
+        if (!isCameraOpened()) {
+            return;
+        }
         if (CameraUtil.lowAvailableSpace(mContext, mPhoneOrientation)) {
             return;
         }
+        //开始录制
+        int sensorOrientation = getSensorOrientation();
+        videoOrientation = caleVideoOrientation(sensorOrientation);
         synchronized (mCameraLock) {
             try {
                 if (prepareMediaRecorder()) {
@@ -367,6 +545,9 @@ public class Camera1 extends CameraViewImpl {
 
     @Override
     public void stopRecordingVideo(boolean triggerCallback) {
+        if (!isCameraOpened()) {
+            return;
+        }
         synchronized (mCameraLock) {
             if (mCameraConfig.isRecordingVideo()) {
                 mRecorderController.stopRecord();
@@ -408,115 +589,223 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public void setAWBMode(int mode) {
-        mCameraConfig.setAwb(mode);
-        switch (mode) {
-            case AWB_MODE_OFF: //OFF， 手动模式
-                break;
-            case AWB_MODE_AUTO:             // 自动
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_AUTO);
-                break;
-            case AWB_MODE_INCANDESCENT: // 白炽灯
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_INCANDESCENT);
-                break;
-            case AWB_MODE_FLUORESCENT: // 荧光灯
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_FLUORESCENT);
-                break;
-            case AWB_MODE_WARM_FLUORESCENT: // 温暖的荧光灯
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_WARM_FLUORESCENT);
-                break;
-            case AWB_MODE_DAYLIGHT: // 晴天
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_DAYLIGHT);
-                break;
-            case AWB_MODE_CLOUDY_DAYLIGHT: // 阴天
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_CLOUDY_DAYLIGHT);
-                break;
-            case AWB_MODE_TWILIGHT: //黄昏
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_TWILIGHT);
-                break;
-            case AWB_MODE_SHADE: //阴影
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_SHADE);
-                break;
-            default:
-                mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_AUTO);
-                break;
-        }
-        setParameters();
-    }
-
-    @Override
-    public void stopSmoothZoom() {
-        if (mZoomFrameCallback != null) {
-            Log.d("Camera1", "stopSmoothZoom");
-            Choreographer.getInstance().removeFrameCallback(mZoomFrameCallback);
-        }
-    }
-
-    @Override
-    public void startSmoothZoom(float start, final float end, final long duration) {
-
-        // 2.0 ~ 3.0 2000ms
-
-        stopSmoothZoom();
-
-        final float[] wt = new float[1];
-        wt[0] = start;
-
-        if (end == wt[0]) {
-            return;
-        }
-
-        final long delay = (long) (duration / (Math.abs(wt[0] - end) * 10));
-        final boolean isShrink = wt[0] > end;
-        mZoomFrameCallback = new Choreographer.FrameCallback() {
-            @Override
-            public void doFrame(long frameTimeNanos) {
-                if (mCamera == null) {
-                    Choreographer.getInstance().removeFrameCallback(this);
-                    return;
-                }
-                if (isShrink) {
-                    if (wt[0] <= end) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                    wt[0] -= 0.1f;
-                } else {
-                    if (wt[0] >= end) {
-                        Choreographer.getInstance().removeFrameCallback(this);
-                        return;
-                    }
-                    wt[0] += 0.1f;
-                }
-                scaleZoom(wt[0]);
-                Choreographer.getInstance().postFrameCallbackDelayed(this, delay);
-            }
-        };
-        Choreographer.getInstance().postFrameCallback(mZoomFrameCallback);
-    }
-
-    @Override
     public void setDisplayOrientation(int displayOrientation) {
         if (mDisplayOrientation == displayOrientation) {
+            return;
+        }
+        if (mCameraParameters == null) {
             return;
         }
         mDisplayOrientation = displayOrientation;
         if (isCameraOpened()) {
             mCameraParameters.setRotation(calcCameraRotation(displayOrientation));
             setParameters();
-            mCamera.setDisplayOrientation(calcDisplayOrientation(displayOrientation));
+            try {
+                mCamera.setDisplayOrientation(calcDisplayOrientation(displayOrientation));
+            } catch (Exception ignored) {
+
+            }
         }
     }
 
     @Override
     public float getMaxZoom() {
+        if (mCameraParameters == null) {
+            return 1;
+        }
         //为了保持和Camera2的单位一致,这里进行了转换.
-        return mCameraParameters.getMaxZoom() / 10f - 1;
+        return getZoomRatios().get(mCameraParameters.getMaxZoom()) / 100f;
+    }
+
+    @Override
+    public void setPicSize(Size size) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getPhotoConfig().setSize(size);
+        mCameraParameters.setPictureSize(size.getWidth(), size.getHeight());
+        setParameters();
+    }
+
+    public Size getPreViewSize() {
+        if (mCamera == null) {
+            return null;
+        }
+        Camera.Size previewSize = mCamera.getParameters().getPreviewSize();
+        return new Size(previewSize.width, previewSize.height);
+    }
+
+    @Override
+    public boolean isManualControlAF() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return TextUtils.equals("manual", mCameraParameters.getFocusMode());
+    }
+
+    @Override
+    public void setManualMode(boolean manual) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getManualConfig().setManual(manual);
+        if (manual) {
+
+        } else {
+            mCameraConfig.getManualConfig().restore();
+            mCameraParameters.setExposureCompensation(0);
+            mCameraParameters.set("iso", "auto");
+            mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_AUTO);
+            if (setAutoFocusInternal(true)) {
+                setParameters();
+            }
+        }
+    }
+
+    @Override
+    public boolean isManualAESupported() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return mCameraParameters.getMaxExposureCompensation() > 0;
+    }
+
+    @Override
+    public void setAEValue(int value) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getManualConfig().setAe(value);
+        if (mOnAeChangeListener != null) {
+            mOnAeChangeListener.onAeChanged(value);
+        }
+        mCameraParameters.setExposureCompensation(value);
+        setParameters();
+    }
+
+    @Override
+    public boolean isSupportedHdr() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        if ("Mi Note 3".equals(Build.MODEL)) {
+            return false;
+        }
+        List<String> supportedSceneModes = mCameraParameters.getSupportedSceneModes();
+        return supportedSceneModes != null && supportedSceneModes.contains(Camera.Parameters.SCENE_MODE_HDR);
+    }
+
+    @Override
+    public float getAeStep() {
+        if (mCameraParameters == null) {
+            return 0;
+        }
+        return mCameraParameters.getExposureCompensationStep();
+    }
+
+    @Override
+    public void setHdrMode(boolean hdr) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        if (!isSupportedHdr()) {
+            return;
+        }
+        super.setHdrMode(hdr);
+        if (hdr) {
+            mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_HDR);
+        } else {
+            mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_AUTO);
+        }
+    }
+
+    @Override
+    public boolean isManualSecSupported() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        String modes = mCameraParameters.get("manual-exposure-modes");
+        return !TextUtils.isEmpty(modes) && modes.contains("user-setting");
+    }
+
+    @Override
+    public String getCameraAPI() {
+        return CAMERA_API_CAMERA1;
+    }
+
+    @Override
+    public Range<Long> getSecRange() {
+        if (mCameraParameters == null) {
+            return new Range<>(0L, 0L);
+        }
+        //camera1返回的时间单位为毫秒,需要转换为纳秒,已和camera2一致.
+        float min = Float.parseFloat(mCameraParameters.get("min-exposure-time"));
+        float max = Float.parseFloat(mCameraParameters.get("max-exposure-time"));
+        long lower = (long) (1000000 * min);
+        long upper = (long) (1000000 * max);
+        return new Range<>(lower, upper);
+    }
+
+    @Override
+    public void setSecValue(long value) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getManualConfig().setSec(value);
+        DecimalFormat df = new DecimalFormat("0.000000");
+        String sec;
+        if (CameraUtil.isOV()) {
+            //OV的手机,只需要将纳秒的sec值除了1000倍,即可达到要求.
+            sec = df.format(value / 1000f);
+        } else {
+            sec = df.format(value / 1000000f);
+        }
+        mCameraParameters.set("manual-exposure-modes", "user-setting");
+        mCameraParameters.set("exposure-time", sec);
+    }
+
+    @Override
+    public boolean isManualISOSupported() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        String isoValues = mCameraParameters.get("iso-values");
+        return !TextUtils.isEmpty(isoValues) && isoValues.toUpperCase().contains("ISO");
+    }
+
+    @Override
+    public List<Integer> getZoomRatios() {
+        if (mCameraParameters == null) {
+            return new ArrayList<>();
+        }
+        return mCameraParameters.getZoomRatios();
+    }
+
+    @Override
+    public List<Integer> getISORange() {
+        if (mCameraParameters == null) {
+            return new ArrayList<>();
+        }
+        String isoValues = mCameraParameters.get("iso-values");
+        Pattern p = Pattern.compile("\\d+");
+        Matcher m = p.matcher(isoValues);
+        List<Integer> isoList = new ArrayList<>();
+        while (m.find()) {
+            try {
+                isoList.add(Integer.valueOf(m.group()));
+            } catch (NumberFormatException e) {
+                e.printStackTrace();
+            }
+        }
+        return isoList;
     }
 
     @Override
     public void scaleZoom(float scale) {
         if (mCamera == null) {
+            return;
+        }
+        if (mCameraParameters == null) {
             return;
         }
         //确保只有1位小数
@@ -536,195 +825,13 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public String getCameraAPI() {
-        return CAMERA_API_CAMERA1;
-    }
-
-    @Override
-    public void setPicSize(Size size) {
-        mCameraConfig.getPhotoConfig().setSize(size);
-        mCameraParameters.setPictureSize(size.getWidth(), size.getHeight());
-        setParameters();
-    }
-
-    @Override
-    public boolean isSupportedManualMode() {
-        return true;
-    }
-
-    @Override
-    public boolean isManualControlAF() {
-        return TextUtils.equals("manual", mCameraParameters.getFocusMode());
-    }
-
-    @Override
-    public void setManualMode(boolean manual) {
-        mCameraConfig.getManualConfig().setManual(manual);
-        if (manual) {
-
-        } else {
-            mCameraConfig.getManualConfig().restore();
-            mCameraParameters.setExposureCompensation(0);
-            mCameraParameters.set("iso", "auto");
-            mCameraParameters.setWhiteBalance(Camera.Parameters.WHITE_BALANCE_AUTO);
-            if (setAutoFocusInternal(true)) {
-                setParameters();
-            }
-        }
-    }
-
-    @Override
-    public void setIsoAuto() {
-        if (mCameraParameters != null) {
-            mCameraParameters.set("iso", "auto");
-        }
-    }
-
-    @Override
-    public boolean isManualAESupported() {
-        return mCameraParameters.getMaxExposureCompensation() > 0;
-    }
-
-    @Override
-    public Range<Integer> getAERange() {
-        if (mCameraParameters == null) {
-            return null;
-        }
-        return new Range<>(mCameraParameters.getMinExposureCompensation(), mCameraParameters.getMaxExposureCompensation());
-    }
-
-    @Override
-    public void setAEValue(int value) {
+    public void setISOValue(int value) {
         if (mCameraParameters == null) {
             return;
         }
-        if (mOnAeChangeListener != null) {
-            mOnAeChangeListener.onAeChanged(value);
-        }
-        mCameraParameters.setExposureCompensation(value);
-        setParameters();
-    }
-
-    @Override
-    public float getAeStep() {
-        return mCameraParameters.getExposureCompensationStep();
-    }
-
-    @Override
-    public boolean isManualSecSupported() {
-        String modes = mCameraParameters.get("manual-exposure-modes");
-        return !TextUtils.isEmpty(modes) && modes.contains("user-setting");
-    }
-
-    @Override
-    public Range<Long> getSecRange() {
-        //camera1返回的时间单位为毫秒,需要转换为纳秒,已和camera2一致.
-        float min = Float.parseFloat(mCameraParameters.get("min-exposure-time"));
-        float max = Float.parseFloat(mCameraParameters.get("max-exposure-time"));
-        long lower = (long) (1000000 * min);
-        long upper = (long) (1000000 * max);
-        return new Range<>(lower, upper);
-    }
-
-    @Override
-    public void setSecValue(long value) {
-        mCameraConfig.getManualConfig().setSec(value);
-        DecimalFormat df = new DecimalFormat("0.000000");
-        String sec;
-        if (CameraUtil.isOV()) {
-            //OV的手机,只需要将纳秒的sec值除了1000倍,即可达到要求.
-            sec = df.format(value / 1000f);
-        } else {
-            sec = df.format(value / 1000000f);
-        }
-        mCameraParameters.set("manual-exposure-modes", "user-setting");
-        mCameraParameters.set("exposure-time", sec);
-    }
-
-    @Override
-    public boolean isManualISOSupported() {
-        String isoValues = mCameraParameters.get("iso-values");
-        return !TextUtils.isEmpty(isoValues) && isoValues.toUpperCase().contains("ISO");
-    }
-
-    @Override
-    public List<Integer> getISORange() {
-        String isoValues = mCameraParameters.get("iso-values");
-        Pattern p = Pattern.compile("\\d+");
-        Matcher m = p.matcher(isoValues);
-        List<Integer> isoList = new ArrayList<>();
-        while (m.find()) {
-            try {
-                isoList.add(Integer.valueOf(m.group()));
-            } catch (NumberFormatException e) {
-                e.printStackTrace();
-            }
-        }
-        return isoList;
-    }
-
-    @Override
-    public void setISOValue(int value) {
         mCameraConfig.getManualConfig().setIso(value);
         mCameraParameters.set("iso", "ISO" + value);
         setParameters();
-    }
-
-    @Override
-    public boolean isManualWBSupported() {
-        String modes = mCameraParameters.get("whitebalance-values");
-        return !TextUtils.isEmpty(modes) && modes.contains("manual");
-    }
-
-    @Override
-    public Range<Integer> getManualWBRange() {
-        try {
-            int lower = Integer.parseInt(mCameraParameters.get("min-wb-cct"));
-            int uper = Integer.parseInt(mCameraParameters.get("max-wb-cct"));
-            return new Range<>(lower, uper);
-        } catch (NumberFormatException e) {
-            return new Range<>(2000, 8000);
-        }
-    }
-
-    @Override
-    public void setManualWBValue(int value) {
-        mCameraConfig.getManualConfig().setWb(value);
-        mCameraParameters.setWhiteBalance("manual");
-        mCameraParameters.set("manual-wb-value", value);
-        mCameraParameters.set("manual-wb-type", 0);
-        setParameters();
-    }
-
-    @Override
-    public boolean isManualAFSupported() {
-        String modes = mCameraParameters.get("focus-mode-values");
-        return !TextUtils.isEmpty(modes) && modes.contains("manual");
-    }
-
-    @Override
-    public Float getAFMaxValue() {
-        try {
-            //比如小米6的返回值max-focus-pos-ratio == 100;
-            //降低到1/10,以便和camera2的数据一致,以便不改动代码
-            return Float.valueOf(mCameraParameters.get("max-focus-pos-ratio")) / 10f;
-        } catch (Exception e) {
-            return 10.0f;
-        }
-    }
-
-    @Override
-    public void setAFValue(float value) {
-        mCameraConfig.getManualConfig().setAf(value);
-        mCameraParameters.setFocusMode("manual");
-        mCameraParameters.set("manual-focus-pos-type", 2);
-        mCameraParameters.set("manual-focus-position", (int) (10 * value));
-        setParameters();
-    }
-
-    @Override
-    public boolean isManualWTSupported() {
-        return mCameraParameters.isZoomSupported();
     }
 
     @Override
@@ -755,167 +862,179 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public int getAe() {
-        return mCameraParameters.getExposureCompensation();
-    }
-
-    @Override
-    public int getIso() {
-        String isoStr = mCameraParameters.get("iso");
-        // isoStr 有出现空的情况
-        if (TextUtils.isEmpty(isoStr)) {
-            return 0;
+    public boolean isManualWBSupported() {
+        if (mCameraParameters == null) {
+            return false;
         }
-        Pattern p = Pattern.compile("\\d+");
-        Matcher m = p.matcher(isoStr);
-        if (m.find()) {
-            try {
-                return Integer.parseInt(m.group());
-            } catch (NumberFormatException e) {
-                return mCameraConfig.getManualConfig().getIso();
-            }
+        String modes = mCameraParameters.get("whitebalance-values");
+        return !TextUtils.isEmpty(modes) && modes.contains("manual");
+    }
+
+    @Override
+    public Range<Integer> getManualWBRange() {
+        if (mCameraParameters == null) {
+            return new Range<>(0, 0);
         }
-        return mCameraConfig.getManualConfig().getIso();
-    }
-
-    @Override
-    public List<Integer> getZoomRatios() {
-        return mCameraParameters.getZoomRatios();
-    }
-
-    @Override
-    public void setHdrMode(boolean hdr) {
-        List<String> supportedSceneModes = mCameraParameters.getSupportedSceneModes();
-        if (supportedSceneModes != null) {
-            if (hdr && supportedSceneModes.contains(Camera.Parameters.SCENE_MODE_HDR)) {
-                mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_HDR);
-            } else {
-                mCameraParameters.setSceneMode(Camera.Parameters.SCENE_MODE_AUTO);
-            }
+        try {
+            int lower = Integer.parseInt(mCameraParameters.get("min-wb-cct"));
+            int uper = Integer.parseInt(mCameraParameters.get("max-wb-cct"));
+            return new Range<>(lower, uper);
+        } catch (NumberFormatException e) {
+            return new Range<>(2000, 8000);
         }
     }
 
     @Override
-    public boolean isSupportedStabilize() {
-        return mCameraParameters.isVideoStabilizationSupported();
-    }
-
-    @Override
-    public boolean getStabilizeEnable() {
-        return mCameraParameters.getVideoStabilization();
-    }
-
-    @Override
-    public void setStabilizeEnable(boolean enable) {
-        mCameraParameters.setVideoStabilization(enable);
+    public void setManualWBValue(int value) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getManualConfig().setWb(value);
+        mCameraParameters.setWhiteBalance("manual");
+        mCameraParameters.set("manual-wb-value", value);
+        mCameraParameters.set("manual-wb-type", 0);
         setParameters();
     }
 
-    // Suppresses Camera#setPreviewTexture
-    @SuppressLint("NewApi")
-    private void setUpPreview() {
+    @Override
+    public boolean isManualAFSupported() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        String modes = mCameraParameters.get("focus-mode-values");
+        return !TextUtils.isEmpty(modes) && modes.contains("manual");
+    }
+
+    @Override
+    public Float getAFMaxValue() {
+        if (mCameraParameters == null) {
+            return 0f;
+        }
         try {
-            if (mPreview.getOutputClass() == SurfaceHolder.class) {
-                mCamera.setPreviewDisplay(mPreview.getSurfaceHolder());
+            //比如小米6的返回值max-focus-pos-ratio == 100;
+            //降低到1/10,以便和camera2的数据一致,以便不改动代码
+            return Float.valueOf(mCameraParameters.get("max-focus-pos-ratio")) / 10f;
+        } catch (Exception e) {
+            return 10.0f;
+        }
+    }
+
+    @Override
+    public void setAFValue(float value) {
+        if (mCameraParameters == null) {
+            return;
+        }
+        mCameraConfig.getManualConfig().setAf(value);
+        mCameraParameters.setFocusMode("manual");
+        mCameraParameters.set("manual-focus-pos-type", 2);
+        mCameraParameters.set("manual-focus-position", (int) (10 * value));
+        setParameters();
+    }
+
+    @Override
+    public boolean isManualWTSupported() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return mCameraParameters.isZoomSupported();
+    }
+
+    @Override
+    public boolean isSupportedManualMode() {
+        return true;
+    }
+
+    @Override
+    public boolean isSupportFaceDetect() {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        return mCameraParameters.getMaxNumDetectedFaces() > 0;
+    }
+
+    @Override
+    public void setFaceDetect(boolean open) {
+        mCameraConfig.setFaceDetect(open);
+        try {
+            if (open) {
+                mCamera.startFaceDetection();
+                calculateCameraToPreviewMatrix();
+                mCamera.setFaceDetectionListener(new Camera.FaceDetectionListener() {
+
+                    ArrayList<Face> mRectList = new ArrayList<>();
+                    private RectF face_rect = new RectF();
+
+                    @Override
+                    public void onFaceDetection(Camera.Face[] faces, Camera camera) {
+                        mRectList.clear();
+                        for (Camera.Face face : faces) {
+                            if (face.score > 50) {
+                                Rect rect = face.rect;
+                                calculateCameraToPreviewMatrix();
+                                face_rect.set(rect);
+                                mMatrix.mapRect(face_rect);
+                                face_rect.round(rect);
+                                mRectList.add(Face.valueOf(face.id, face.rect));
+                            }
+                        }
+                        if (mOnFaceDetectListener != null) {
+                            mOnFaceDetectListener.onFaceDetect(mRectList);
+                        }
+                    }
+                });
             } else {
-                mCamera.setPreviewTexture(mPreview.getSurfaceTexture());
+                mCamera.stopFaceDetection();
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     @Override
-    public boolean isCameraOpened() {
-        return mCamera != null;
-    }
-
-    @Override
-    public void setFacing(int facing) {
-        if (mCameraConfig.getFacing() == facing) {
-            return;
+    public void setIsoAuto() {
+        if (mCameraParameters != null) {
+            mCameraParameters.set("iso", "auto");
         }
-        mCameraConfig.setFacing(facing);
-        if (isCameraOpened()) {
-            stop();
-            start();
-        }
-    }
-
-    @Override
-    public String getCameraId() {
-        return String.valueOf(mCameraId);
-    }
-
-    @Override
-    public Set<AspectRatio> getSupportedAspectRatios() {
-        SizeMap idealAspectRatios = mPreviewSizes;
-        for (AspectRatio aspectRatio : idealAspectRatios.ratios()) {
-            if (mPictureSizes.sizes(aspectRatio) == null) {
-                idealAspectRatios.remove(aspectRatio);
-            }
-        }
-        return idealAspectRatios.ratios();
-    }
-
-    @Override
-    public SortedSet<Size> getSupportedPicSizes() {
-        return mPictureSizes.sizes(mCameraConfig.getAspectRatio());
-    }
-
-    @Override
-    public boolean isSupported60Fps() {
-        final List<int[]> supportedPreviewFpsRange = mCameraParameters.getSupportedPreviewFpsRange();
-        if (supportedPreviewFpsRange == null || supportedPreviewFpsRange.isEmpty()) {
-            return false;
-        } else {
-            for (int[] fpsRange : supportedPreviewFpsRange) {
-                for (int fps : fpsRange) {
-                    if (fps / 1000 >= 60) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     @Override
     public SortedSet<Size> getSupportedVideoSize() {
-//        List<Camera.Size> supportedVideoSizes = mCameraParameters.getSupportedVideoSizes();
-//        if (supportedVideoSizes == null) {
-//            return new ArrayList<>();
-//        }
-//        List<android.util.Size> size = new ArrayList<>();
-//        for (Camera.Size videoSize : supportedVideoSizes) {
-//            android.util.Size size1 = new android.util.Size(videoSize.width, videoSize.height);
-//            //去重.
-//            //vivo x21A手机会出现2次4k的选项.
-//            if (!size.contains(size1)) {
-//                size.add(size1);
-//            }
-//        }
-//
-//        // 使用白名单的方式添加4K支持
-//        // 需要等市场反馈支持良好后开放
-//        // android.util.Size size4k = new android.util.Size(3840, 2160);
-//        // if (Whitelist4k.isWhitelist() && !size.contains(size4k)) {
-//        //     size.add(size4k);
-//        // }
-//
-//        //排序
-//        Collections.sort(size, new Comparator<android.util.Size>() {
-//            @Override
-//            public int compare(android.util.Size o1, android.util.Size o2) {
-//                return (o1.getWidth() + o1.getHeight()) - (o2.getWidth() + o2.getHeight());
-//            }
-//        });
-//        return size;
-        return null;
+        if (mCameraParameters == null) {
+            return new TreeSet<>();
+        }
+        List<Camera.Size> supportedVideoSizes = mCameraParameters.getSupportedVideoSizes();
+        if (supportedVideoSizes == null) {
+            return new TreeSet<>();
+        }
+        SortedSet<Size> sizeSortedSet = new TreeSet<>();
+        for (Camera.Size videoSize : supportedVideoSizes) {
+            Size size = new Size(videoSize.width, videoSize.height);
+            sizeSortedSet.add(size);
+        }
+
+        // 使用白名单的方式添加4K支持
+        // 需要等市场反馈支持良好后开放
+        // android.util.Size size4k = new android.util.Size(3840, 2160);
+        // if (Whitelist4k.isWhitelist() && !size.contains(size4k)) {
+        //     size.add(size4k);
+        // }
+
+        return sizeSortedSet;
+    }
+
+    @Override
+    public Range<Integer> getAERange() {
+        if (mCameraParameters == null) {
+            return null;
+        }
+        return new Range<>(mCameraParameters.getMinExposureCompensation(), mCameraParameters.getMaxExposureCompensation());
     }
 
     @Override
     public int[] getSupportAWBModes() {
+        if (mCameraParameters == null) {
+            return new int[0];
+        }
         List<String> whiteBalance = mCameraParameters.getSupportedWhiteBalance();
         if (whiteBalance == null) {
             return new int[0];
@@ -940,65 +1059,19 @@ public class Camera1 extends CameraViewImpl {
     }
 
     @Override
-    public boolean setAspectRatio(AspectRatio ratio) {
-        if (mCameraConfig.getAspectRatio() == null || !isCameraOpened()) {
-            // Handle this later when camera is opened
-            mCameraConfig.setAspectRatio(ratio);
-            return true;
-        } else if (!mCameraConfig.getAspectRatio().equals(ratio)) {
-            final Set<Size> sizes = mPreviewSizes.sizes(ratio);
-            if (sizes == null) {
-                throw new UnsupportedOperationException(ratio + " is not supported");
-            } else {
-                mCameraConfig.setAspectRatio(ratio);
-                adjustCameraParameters();
-                return true;
-            }
+    public boolean isFlashAvailable() {
+        if (mCameraParameters == null) {
+            return false;
         }
-        return false;
+        return mCameraParameters.getSupportedFlashModes() != null;
     }
 
-    private void saveVideosInSp() {
-        if (mCamera == null) {
-            return;
+    @Override
+    public int getAe() {
+        if (mCameraParameters == null) {
+            return 0;
         }
-
-        boolean allSaved = false;
-
-        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(mContext);
-
-        for (int i = 0, count = Camera.getNumberOfCameras(); i < count; i++) {
-            if (sp.contains(String.valueOf(i))) {
-                allSaved = true;
-                break;
-            }
-        }
-
-        if (allSaved) {
-            //Already put in sp.
-            return;
-        }
-
-        SharedPreferences.Editor edit = sp.edit();
-
-        for (int i = 0, count = Camera.getNumberOfCameras(); i < count; i++) {
-            mCamera.release();
-            mCamera = Camera.open(i);
-            List<Camera.Size> cameraSizes = mCamera.getParameters().getSupportedVideoSizes();
-            if (cameraSizes == null) {
-                continue;
-            }
-            Type listType = new TypeToken<List<android.util.Size>>() {
-            }.getType();
-            List<android.util.Size> utilSizes = new ArrayList<>();
-            for (Camera.Size size : cameraSizes) {
-                utilSizes.add(new android.util.Size(size.width, size.height));
-            }
-            String key = String.valueOf(i);
-            String value = new Gson().toJson(utilSizes, listType);
-            edit.putString(key, value).apply();
-        }
-        openCamera();
+        return mCameraParameters.getExposureCompensation();
     }
 
     private boolean prepareMediaRecorder() throws IOException {
@@ -1006,7 +1079,7 @@ public class Camera1 extends CameraViewImpl {
             return false;
         }
         synchronized (mCameraLock) {
-            mCameraConfig.setOrientation(calculateCaptureRotation());
+            mCameraConfig.setOrientation(videoOrientation);
             mRecorderController.configForCamera1(mCameraConfig, mCamera);
             return true;
         }
@@ -1043,9 +1116,15 @@ public class Camera1 extends CameraViewImpl {
                     }
                 });
             } catch (Exception e) {
+                Log.e("Camera1", "takePictureInternal: take picture failed. ", e);
+                mCaptureController.capturePreview(mPreview.getFrameBitmap(
+                        mCameraConfig.getPhotoConfig().getSize().getWidth(),
+                        mCameraConfig.getPhotoConfig().getSize().getHeight()
+                ));
                 isPictureCaptureInProgress.set(false);
-                Log.e("Camera1", "takePictureInternal: take picture failed = " + e.getMessage());
             }
+        } else {
+            isPictureCaptureInProgress.set(false);
         }
     }
 
@@ -1058,15 +1137,31 @@ public class Camera1 extends CameraViewImpl {
         return captureRotation;
     }
 
+    private int getSensorOrientation() {
+        int sensorOrientation = 0;
+        if (mCameraConfig.getFacing() != Constants.FACING_FRONT) {
+            sensorOrientation = 90;
+        } else {
+            sensorOrientation = 270;
+        }
+        return sensorOrientation;
+    }
+
     /**
      * @return 返回Camera1表示的最大zoom
      * 即{@link #getZoomRatios()}的最后一个元素的index.
      */
     private int getMaxZoomByCamera1() {
+        if (mCameraParameters == null) {
+            return 1;
+        }
         return mCameraParameters.getMaxZoom();
     }
 
     private int getZoom() {
+        if (mCameraParameters == null) {
+            return 1;
+        }
         return mCameraParameters.getZoom();
     }
 
@@ -1075,7 +1170,11 @@ public class Camera1 extends CameraViewImpl {
      */
     private void chooseCamera() {
         for (int i = 0, count = Camera.getNumberOfCameras(); i < count; i++) {
-            Camera.getCameraInfo(i, mCameraInfo);
+            try {
+                Camera.getCameraInfo(i, mCameraInfo);
+            } catch (Exception e) {
+                break;
+            }
             if (mCameraInfo.facing == mCameraConfig.getFacing()) {
                 mCameraId = i;
                 return;
@@ -1084,13 +1183,37 @@ public class Camera1 extends CameraViewImpl {
         mCameraId = INVALID_CAMERA_ID;
     }
 
+    @Override
+    public int getIso() {
+        if (mCameraParameters == null) {
+            return 0;
+        }
+        String isoStr = mCameraParameters.get("iso");
+        // isoStr 有出现空的情况
+        if (TextUtils.isEmpty(isoStr)) {
+            return 0;
+        }
+        Pattern p = Pattern.compile("\\d+");
+        Matcher m = p.matcher(isoStr);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group());
+            } catch (NumberFormatException e) {
+                return mCameraConfig.getManualConfig().getIso();
+            }
+        }
+        return mCameraConfig.getManualConfig().getIso();
+    }
+
     private void openCamera() {
         if (mCamera != null) {
             releaseCamera();
         }
         try {
-            mCamera = Camera.open(mCameraId);
-            mCameraParameters = mCamera.getParameters();
+            synchronized (mCameraLock) {
+                mCamera = Camera.open(mCameraId);
+                mCameraParameters = mCamera.getParameters();
+            }
         } catch (Exception e) {
             Log.e("Camera1", "openCamera: failed = " + e.getMessage());
             mCallback.onFailed(CameraError.OPEN_FAILED);
@@ -1114,10 +1237,25 @@ public class Camera1 extends CameraViewImpl {
         mCamera.setDisplayOrientation(calcDisplayOrientation(mDisplayOrientation));
         mCallback.onCameraOpened();
         mCallback.onRequestBuilderCreate();
+        addManualParams();
+    }
 
-        //保存摄像头的视频分辨率信息
-        saveVideosInSp();
-        mAvailableSpace = CameraUtil.getAvailableSpace();
+    /**
+     * 大部分情况应用于小米手机录制视频后.
+     * 在手动模式下, 需要重新设置这些参数, 否则会造成手动参数的显示值与相机的表现不一致.
+     */
+    private void addManualParams() {
+        if (mCameraConfig.getManualConfig().isManual()) {
+            if (mCameraConfig.getManualConfig().getWb() != Constants.DEF_MANUAL_WB) {
+                setManualWBValue(mCameraConfig.getManualConfig().getWb());
+            }
+            if (mCameraConfig.getManualConfig().getIso() != 0) {
+                setISOValue(mCameraConfig.getManualConfig().getIso());
+            }
+            if (mCameraConfig.getManualConfig().getSec() != 0) {
+                setSecValue(mCameraConfig.getManualConfig().getSec());
+            }
+        }
     }
 
     private AspectRatio chooseAspectRatio() {
@@ -1141,14 +1279,116 @@ public class Camera1 extends CameraViewImpl {
         if (mShowingPreview) {
             mCamera.stopPreview();
         }
+        mPreview.setBufferSize(size.getWidth(), size.getHeight());
         mCameraParameters.setPreviewSize(size.getWidth(), size.getHeight());
         setAutoFocusInternal(mCameraConfig.isAutoFocus());
         setFlashInternal(mCameraConfig.getFlash());
+        setAEValue(mCameraConfig.getManualConfig().getAe());
         setParameters();
         if (mShowingPreview) {
-            startPreview();
+            try {
+                mCamera.startPreview();
+            } catch (Exception e) {
+                e.printStackTrace();
+                startPreview();
+            }
         }
     }
+
+    private void releaseCamera() {
+        synchronized (mCameraLock) {
+            if (mCamera != null) {
+                try {
+                    mCamera.release();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                mCamera = null;
+                mCallback.onCameraClosed();
+            }
+        }
+    }
+
+    /**
+     * @return {@code true} if {@link #mCameraParameters} was modified.
+     */
+    private boolean setAutoFocusInternal(boolean autoFocus) {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        mCameraConfig.setAutoFocus(autoFocus);
+        if (isCameraOpened()) {
+            final List<String> modes = mCameraParameters.getSupportedFocusModes();
+            if (autoFocus && modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+            } else if (modes.contains(Camera.Parameters.FOCUS_MODE_FIXED)) {
+                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_FIXED);
+            } else if (modes.contains(Camera.Parameters.FOCUS_MODE_INFINITY)) {
+                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
+            } else {
+                mCameraParameters.setFocusMode(modes.get(0));
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * @return {@code true} if {@link #mCameraParameters} was modified.
+     */
+    private boolean setFlashInternal(int flash) {
+        if (mCameraParameters == null) {
+            return false;
+        }
+        if (isCameraOpened()) {
+            List<String> modes = mCameraParameters.getSupportedFlashModes();
+            String mode = FLASH_MODES.get(flash);
+            if (modes != null && modes.contains(mode)) {
+                mCameraParameters.setFlashMode(mode);
+                mCameraConfig.setFlash(flash);
+                return true;
+            }
+            String currentMode = FLASH_MODES.get(mCameraConfig.getFlash());
+            if (modes == null || !modes.contains(currentMode)) {
+                mCameraParameters.setFlashMode(Camera.Parameters.FLASH_MODE_OFF);
+                mCameraConfig.setFlash(Constants.FLASH_OFF);
+                return true;
+            }
+            return false;
+        } else {
+            mCameraConfig.setFlash(flash);
+            return false;
+        }
+    }
+
+    private void resetToContiousFocus() {
+        getView().postDelayed(mContiousFocusRunnable, DELAY_MILLIS_BEFORE_RESETTING_FOCUS);
+    }
+
+
+    private void calculateCameraToPreviewMatrix() {
+        mMatrix.reset();
+        // from http://developer.android.com/reference/android/hardware/Camera.Face.html#rect
+        // Need mirror for front camera
+        boolean mirror = getFacing() == CameraView.FACING_FRONT;
+        mMatrix.setScale(mirror ? -1 : 1, 1);
+        mMatrix.postRotate(0);
+        // Camera driver coordinates range from (-1000, -1000) to (1000, 1000).
+        // UI coordinates range from (0, 0) to (width, height).
+        mMatrix.postScale(mPreview.getWidth() / 2000f, mPreview.getHeight() / 2000f);
+        mMatrix.postTranslate(mPreview.getWidth() / 2f, mPreview.getHeight() / 2f);
+    }
+
+
+
+
+
+
+
+
+
+
 
     @SuppressWarnings("SuspiciousNameCombination")
     private Size chooseOptimalSize(SortedSet<Size> sizes) {
@@ -1177,13 +1417,7 @@ public class Camera1 extends CameraViewImpl {
         return result;
     }
 
-    private void releaseCamera() {
-        if (mCamera != null) {
-            mCamera.release();
-            mCamera = null;
-            mCallback.onCameraClosed();
-        }
-    }
+
 
     /**
      * Calculate display orientation
@@ -1235,59 +1469,9 @@ public class Camera1 extends CameraViewImpl {
                 orientationDegrees == Constants.LANDSCAPE_270);
     }
 
-    /**
-     * @return {@code true} if {@link #mCameraParameters} was modified.
-     */
-    private boolean setAutoFocusInternal(boolean autoFocus) {
-        mCameraConfig.setAutoFocus(autoFocus);
-        if (isCameraOpened()) {
-            final List<String> modes = mCameraParameters.getSupportedFocusModes();
-            if (autoFocus && modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
-                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
-            } else if (modes.contains(Camera.Parameters.FOCUS_MODE_FIXED)) {
-                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_FIXED);
-            } else if (modes.contains(Camera.Parameters.FOCUS_MODE_INFINITY)) {
-                mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
-            } else {
-                mCameraParameters.setFocusMode(modes.get(0));
-            }
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * @return {@code true} if {@link #mCameraParameters} was modified.
-     */
-    private boolean setFlashInternal(int flash) {
-        if (isCameraOpened()) {
-            List<String> modes = mCameraParameters.getSupportedFlashModes();
-            String mode = FLASH_MODES.get(flash);
-            if (modes != null && modes.contains(mode)) {
-                mCameraParameters.setFlashMode(mode);
-                mCameraConfig.setFlash(flash);
-                return true;
-            }
-            String currentMode = FLASH_MODES.get(mCameraConfig.getFlash());
-            if (modes == null || !modes.contains(currentMode)) {
-                mCameraParameters.setFlashMode(Camera.Parameters.FLASH_MODE_OFF);
-                mCameraConfig.setFlash(Constants.FLASH_OFF);
-                return true;
-            }
-            return false;
-        } else {
-            mCameraConfig.setFlash(flash);
-            return false;
-        }
-    }
-
-    private void resetToContiousFocus() {
-        getView().postDelayed(mContiousFocusRunnable, DELAY_MILLIS_BEFORE_RESETTING_FOCUS);
-    }
 
     private Rect calculateFocusArea(float x, float y) {
-        int buffer = FOCUS_AREA_SIZE_DEFAULT / 2;
+        int buffer = FOCUS_METERING_AREA_WEIGHT_DEFAULT / 2;
         int centerX = calculateCenter(x, getView().getWidth(), buffer);
         int centerY = calculateCenter(y, getView().getHeight(), buffer);
         return new Rect(
@@ -1298,8 +1482,10 @@ public class Camera1 extends CameraViewImpl {
         );
     }
 
+
     private void startPreview() {
         try {
+//            mPreview.onPreview();
             mCamera.startPreview();
         } catch (Exception e) {
             e.printStackTrace();
@@ -1314,7 +1500,7 @@ public class Camera1 extends CameraViewImpl {
         try {
             mCamera.setParameters(mCameraParameters);
         } catch (Exception e) {
-//            e.printStackTrace();
+            Log.w("Camera1", "setParameters failed.  ", e);
         }
     }
 

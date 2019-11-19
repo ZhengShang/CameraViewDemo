@@ -9,9 +9,10 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.RggbChannelVector;
 import android.os.Handler;
-import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.Surface;
+
+import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,7 +1,8 @@
 package cn.zhengshang.base;
 
 import android.media.CamcorderProfile;
-import android.support.annotation.NonNull;
+
+import androidx.annotation.NonNull;
 
 import java.util.Objects;
 
@@ -10,7 +11,7 @@ import cn.zhengshang.util.CamcorderUtil;
 /**
  * Immutable class for describing width and height dimensions in pixels.
  */
-public class Size implements Comparable<Size> {
+public class Size implements Comparable<Size>, Cloneable {
 
     private final int mWidth;
     private final int mHeight;
@@ -50,11 +51,6 @@ public class Size implements Comparable<Size> {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(getWidth(), getHeight(), getFps());
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (o == null) {
             return false;
@@ -75,6 +71,11 @@ public class Size implements Comparable<Size> {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(getWidth(), getHeight(), getFps());
+    }
+
+    @Override
     public int compareTo(@NonNull Size another) {
         if (mWidth * mHeight == another.mWidth * another.mHeight) {
             return mFps - another.mFps;
@@ -86,17 +87,22 @@ public class Size implements Comparable<Size> {
         return CamcorderUtil.hasHighSpeedCamcorder(this, cameraId);
     }
 
-    public CamcorderProfile getCamcorderProfile() {
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
+    }
+
+    public CamcorderProfile getHighSpeedCamcorderProfile(int cameraID) {
         if (mWidth == 720 && mHeight == 480) {
-            return CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
+            return CamcorderProfile.get(cameraID, CamcorderProfile.QUALITY_HIGH_SPEED_480P);
         } else if (mWidth == 1280 && mHeight == 720) {
-            return CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
+            return CamcorderProfile.get(cameraID, CamcorderProfile.QUALITY_HIGH_SPEED_720P);
         } else if (mWidth == 1920 && mHeight == 1080) {
-            return CamcorderProfile.get(CamcorderProfile.QUALITY_1080P);
+            return CamcorderProfile.get(cameraID, CamcorderProfile.QUALITY_HIGH_SPEED_1080P);
         } else if (mWidth == 3840 && mHeight == 2160) {
-            return CamcorderProfile.get(CamcorderProfile.QUALITY_2160P);
+            return CamcorderProfile.get(cameraID, CamcorderProfile.QUALITY_HIGH_SPEED_2160P);
         } else {
-            return CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
+            return CamcorderProfile.get(cameraID, CamcorderProfile.QUALITY_HIGH_SPEED_720P);
         }
     }
 
@@ -120,5 +126,28 @@ public class Size implements Comparable<Size> {
         } else {
             return Constants.DEF_BITRATE;
         }
+    }
+
+    public CamcorderProfile getTimeLapseProfile(int cameraId) {
+        if (CamcorderProfile.hasProfile(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_1080P)) {
+            return CamcorderProfile.get(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_1080P);
+        } else if (CamcorderProfile.hasProfile(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_720P)) {
+            return CamcorderProfile.get(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_720P);
+        } else if (CamcorderProfile.hasProfile(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_480P)) {
+            return CamcorderProfile.get(cameraId, CamcorderProfile.QUALITY_TIME_LAPSE_480P);
+        }
+        return null;
+    }
+
+    public boolean is720P() {
+        return mWidth == 1280 && mHeight == 720;
+    }
+
+    public boolean is1080P() {
+        return mWidth == 1920 && mHeight == 1080;
+    }
+
+    public boolean is4K() {
+        return mWidth == 3840 && mHeight == 2160;
     }
 }

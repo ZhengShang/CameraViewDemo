@@ -5,11 +5,11 @@ import android.graphics.Rect;
 import cn.zhengshang.base.AspectRatio;
 import cn.zhengshang.base.Constants;
 
-public class CameraConfig {
+public class CameraConfig implements Cloneable {
     /**
      * 方向.
      */
-    private int orientation;
+    private int orientation = Constants.LANDSCAPE_270;
     /**
      * 镜头.分为前摄和后摄
      */
@@ -45,11 +45,15 @@ public class CameraConfig {
     /**
      * 是否自动对焦
      */
-    private boolean autoFocus = true;
+    private volatile boolean autoFocus = true;
     /**
      * AE锁定
      */
     private boolean aeLock;
+    /**
+     * 人脸检测
+     */
+    private volatile boolean faceDetect;
 
     private ManualConfig mManualConfig = new ManualConfig();
     private PhotoConfig photoConfig = new PhotoConfig();
@@ -164,5 +168,53 @@ public class CameraConfig {
     public CameraConfig setAeLock(boolean aeLock) {
         this.aeLock = aeLock;
         return this;
+    }
+
+    public boolean isFaceDetect() {
+        return faceDetect;
+    }
+
+    public CameraConfig setFaceDetect(boolean faceDetect) {
+        this.faceDetect = faceDetect;
+        return this;
+    }
+
+    public CameraConfig copy() {
+        try {
+            CameraConfig cameraConfig = (CameraConfig) this.clone();
+            cameraConfig.mVideoConfig = (VideoConfig) cameraConfig.mVideoConfig.clone();
+            cameraConfig.photoConfig = (PhotoConfig) cameraConfig.photoConfig.clone();
+            cameraConfig.mManualConfig = (ManualConfig) cameraConfig.mManualConfig.clone();
+            return cameraConfig;
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    @Override
+    protected Object clone() throws CloneNotSupportedException {
+        return super.clone();
+    }
+
+    @Override
+    public String toString() {
+        return "CameraConfig{" +
+                "orientation=" + orientation +
+                ", facing=" + facing +
+                ", stabilization=" + stabilization +
+                ", rect=" + rect +
+                ", flash=" + flash +
+                ", aspectRatio=" + aspectRatio +
+                ", isRecordingVideo=" + isRecordingVideo +
+                ", awb=" + awb +
+                ", zoomRatio=" + zoomRatio +
+                ", autoFocus=" + autoFocus +
+                ", aeLock=" + aeLock +
+                ", faceDetect=" + faceDetect +
+                ", mManualConfig=" + mManualConfig +
+                ", photoConfig=" + photoConfig +
+                ", mVideoConfig=" + mVideoConfig +
+                '}';
     }
 }

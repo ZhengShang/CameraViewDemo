@@ -6,7 +6,8 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaRecorder;
-import android.support.annotation.NonNull;
+
+import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,6 +35,7 @@ public class AudioEncoderCore {
     private double lastLevel = 0;
 
     private Callback mCallback;
+
     private final Runnable mAudioRunnable = new Runnable() {
 
         @Override
@@ -158,6 +160,7 @@ public class AudioEncoderCore {
     public void stop() {
         isRecording = false;
     }
+
 
     public int getVolumeLevel() {
         return (int) (10 * lastLevel);

@@ -1,7 +1,8 @@
 package cn.zhengshang.cameraview;
 
-import android.support.annotation.NonNull;
 import android.view.View;
+
+import androidx.annotation.NonNull;
 
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;

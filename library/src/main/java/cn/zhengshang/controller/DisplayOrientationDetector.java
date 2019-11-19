@@ -14,6 +14,8 @@ import static cn.zhengshang.util.CameraUtil.translate2Rotation;
  */
 public abstract class DisplayOrientationDetector {
 
+    private final OrientationEventListener mOrientationEventListener;
+
     /** Mapping from Surface.Rotation_n to degrees. */
     static final SparseIntArray DISPLAY_ORIENTATIONS = new SparseIntArray();
 
@@ -24,7 +26,6 @@ public abstract class DisplayOrientationDetector {
         DISPLAY_ORIENTATIONS.put(Surface.ROTATION_270, 270);
     }
 
-    private final OrientationEventListener mOrientationEventListener;
     Display mDisplay;
 
     private int mLastKnownDisplayOrientation = 0;

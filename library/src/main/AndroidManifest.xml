@@ -12,8 +12,7 @@
     limitations under the License.
 -->
 <manifest package="cn.zhengshang.cameraview"
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -25,7 +24,4 @@
         android:required="false"/>
 
     <application/>
-
-    <uses-sdk
-        tools:overrideLibrary="com.huawei.emui.himedia" />
 </manifest>

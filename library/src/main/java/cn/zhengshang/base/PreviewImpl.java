@@ -13,7 +13,9 @@ import android.view.View;
 public abstract class PreviewImpl {
 
     private Callback mCallback;
+
     private int mWidth;
+
     private int mHeight;
 
     public void setCallback(Callback callback) {

@@ -45,6 +45,10 @@ public class Camera2Api23 extends Camera2 {
                 for (android.util.Size size : map.getHighSpeedVideoSizesFor(fpsRange)) {
                     Size videoSize = new Size(size.getWidth(), size.getHeight());
                     if (videoSize.hasHighSpeedCamcorder(getFacing())) {
+                        if (fpsRange.getUpper() > 60) {
+                            //最高只支持到60fps
+                            continue;
+                        }
                         videoSize.setFps(fpsRange.getUpper());
                         sizes.add(videoSize);
                         Log.d("Camera2Api23", "Support HighSpeed video recording for " + videoSize.toString());

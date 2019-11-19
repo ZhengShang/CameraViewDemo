@@ -9,14 +9,16 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 
+import cn.zhengshang.config.CameraConfig;
 import cn.zhengshang.listener.OnAeChangeListener;
 import cn.zhengshang.listener.OnCaptureImageCallback;
+import cn.zhengshang.listener.OnFaceDetectListener;
 import cn.zhengshang.listener.OnManualValueListener;
 import cn.zhengshang.listener.OnVideoOutputFileListener;
 
 /**
  * Created by shangzheng on 2019-05-09.
- * 🐳🐳🐳🍒           16:42 🥥
+ *            🐳🐳🐳🍒           16:42 🥥
  */
 public interface ZyCamera {
 
@@ -28,17 +30,15 @@ public interface ZyCamera {
 
     View getView();
 
-    int getFacing();
-
     void setFacing(int facing);
+
+    int getFacing();
 
     String getCameraId();
 
     Set<AspectRatio> getSupportedAspectRatios();
 
     SortedSet<Size> getSupportedPicSizes();
-
-    boolean isSupported60Fps();
 
     SortedSet<Size> getSupportedVideoSize();
 
@@ -53,19 +53,19 @@ public interface ZyCamera {
 
     AspectRatio getAspectRatio();
 
-    boolean getAutoFocus();
-
     void setAutoFocus(boolean autoFocus);
+
+    boolean getAutoFocus();
 
     boolean isFlashAvailable();
 
-    int getFlash();
-
     void setFlash(int flash);
 
-    boolean isTorch();
+    int getFlash();
 
     void setTorch(boolean open);
+
+    boolean isTorch();
 
     void takePicture();
 
@@ -75,7 +75,6 @@ public interface ZyCamera {
 
     /**
      * 根据点击区域重新对焦
-     *
      * @param lock 对焦完成后,是否锁定AE/AF
      */
     void resetAF(MotionEvent e, boolean lock);
@@ -97,21 +96,23 @@ public interface ZyCamera {
 
     void setPlaySound(boolean playSound);
 
-    boolean getMuteVideo();
-
     void setMuteVideo(boolean muteVideo);
 
+    boolean getMuteVideo();
+
     long getAvailableSpace();
+
+    void setAvailableSpace(long space);
 
     boolean isRecordingVideo();
 
     int getBitrate();
 
-    void setBitrate(int bitrate);
+    void setCaptureRate(double rate);
 
     double getCaptureRate();
 
-    void setCaptureRate(double rate);
+    int getCaptureOrientation();
 
     String getVideoOutputFilePath();
 
@@ -143,6 +144,8 @@ public interface ZyCamera {
 
     void stopSmoothFocus();
 
+    void setBitrate(int bitrate);
+
     void setDisplayOrientation(int displayOrientation);
 
     float getMaxZoom();
@@ -167,9 +170,11 @@ public interface ZyCamera {
 
     Size getVideoSize();
 
-    void setVideoSize(Size size);
+    void setVideoSize(Size size, boolean save);
 
     int getFps();
+
+    Size getPreViewSize();
 
     void setFps(int fps);
 
@@ -177,7 +182,11 @@ public interface ZyCamera {
 
     void setPicFormat(int format);
 
+    boolean isSupportedHdr();
+
     void setHdrMode(boolean hdr);
+
+    void setStabilizeEnable(boolean enable);
 
     /**
      * 是否支持防抖
@@ -188,8 +197,6 @@ public interface ZyCamera {
 
     boolean getStabilizeEnable();
 
-    void setStabilizeEnable(boolean enable);
-
     /**
      * 只是以下6个中的一个就算支持手动模式
      * <p>
@@ -199,9 +206,9 @@ public interface ZyCamera {
 
     boolean isManualControlAF();
 
-    boolean isManualMode();
-
     void setManualMode(boolean manual);
+
+    boolean isManualMode();
 
     void setIsoAuto();
 
@@ -246,13 +253,19 @@ public interface ZyCamera {
 
     void startSmoothFocus(final float start, final float end, long duration);
 
-    int getPhoneOrientation();
-
     void setPhoneOrientation(int orientation);
+
+    int getPhoneOrientation();
 
     MediaRecorder getMediaRecorder();
 
     String generateVideoFilePath();
+
+    boolean isSupportFaceDetect();
+
+    void setFaceDetect(boolean open);
+
+    void addOnFaceDetectListener(OnFaceDetectListener onFaceDetectListener);
 
     void addOnManualValueListener(OnManualValueListener onManualValueListener);
 
@@ -262,4 +275,7 @@ public interface ZyCamera {
 
     void addOnVideoOutputFileListener(OnVideoOutputFileListener onVideoOutputFileListener);
 
+    CameraConfig getCameraConfig();
+
+    void setCameraConfig(CameraConfig cameraConfig);
 }

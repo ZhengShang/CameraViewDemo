@@ -6,22 +6,24 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.os.Build;
-import android.support.annotation.NonNull;
 import android.text.TextUtils;
+import android.util.Log;
 
-import com.huawei.emui.himedia.camera.HwCamera;
+import androidx.annotation.NonNull;
 
-import cn.zhengshang.base.CameraViewImpl;
 import cn.zhengshang.base.PreviewImpl;
+import cn.zhengshang.base.ZyCamera;
 import cn.zhengshang.cameraview.Camera1;
 import cn.zhengshang.cameraview.Camera2;
 import cn.zhengshang.cameraview.Camera2Api23;
-import cn.zhengshang.cameraview.CameraHighSpeedVideo;
+import cn.zhengshang.config.SpecialDevicesList;
 import cn.zhengshang.listener.CameraCallback;
 
 public class CameraController {
 
+    private static final String TAG = "CameraController";
     private int mStartApi;
+    private Class<? extends ZyCamera> mAutoClz;
 
     public CameraController(int startApi) {
         mStartApi = startApi;
@@ -29,27 +31,29 @@ public class CameraController {
 
     /**
      * 自动选择相机.
-     *
-     * @param context  Context
-     * @param callback 回调
-     * @param preview  预览
-     * @return 返回对应的相机实例
+     * @param context Context
+     * @return 返回对应的相机实例Class
      */
-    public CameraViewImpl openCamera(Context context,
-                                     CameraCallback callback,
-                                     PreviewImpl preview) throws RuntimeException {
+    public Class<? extends ZyCamera> autoInstanceCamera(Context context) throws RuntimeException {
 
         if (mStartApi == 0) {
-            return autoChooseCamera(context, callback, preview);
+            if (mAutoClz != null) {
+                return mAutoClz;
+            }
+            mAutoClz = autoChooseCamera(context);
+            return mAutoClz;
         } else if (mStartApi == 1) {
-            return new Camera1(context, callback, preview);
+            return Camera1.class;
         } else {
-            return new Camera2(context, callback, preview);
+            return Camera2.class;
         }
     }
 
     @NonNull
-    private CameraViewImpl autoChooseCamera(Context context, CameraCallback callback, PreviewImpl preview) {
+    private Class<? extends ZyCamera> autoChooseCamera(Context context) {
+        if (SpecialDevicesList.isForceUseCamera1()) {
+            return Camera1.class;
+        }
         int level = getBackFacingCameraLevel(context);
         if (level == -1) {
             throw new RuntimeException("获取相机等级失败");
@@ -57,29 +61,34 @@ public class CameraController {
         if (level == CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED
                 || level == CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_FULL
                 || level == CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_3) {
-//            if (isHwSlowMotionSupported(context)) {
-//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-//                    return new HwCameraVideo(callback, preview, context);
-//                }
+//            if (PhoneHelper.isSupportSamsangCamera(context)) {
+//                return SamSangCamera.class;
 //            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                return new Camera2Api23(context, callback, preview);
+            if (!SpecialDevicesList.banHsv()
+                    && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                return Camera2Api23.class;
             }
-            return new Camera2(context, callback, preview);
+            return Camera2.class;
         } else if (level == CameraMetadata.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY) {
-            return new Camera1(context, callback, preview);
+            return Camera1.class;
         } else {
             throw new RuntimeException("获取相机等级失败");
         }
     }
 
-    /**
-     * 切换到高帧率录制相机
-     */
-    public CameraViewImpl switchToHighSpeedCamera(Context context,
-                                                  CameraCallback callback,
-                                                  PreviewImpl preview) {
-        return new CameraHighSpeedVideo(context, callback, preview);
+    public ZyCamera newInstanceCamera(Class<? extends ZyCamera> clz,
+                                      Context context,
+                                      CameraCallback callback,
+                                      PreviewImpl preview) {
+        try {
+            Log.v(TAG, "Instance camera class = " + clz.getSimpleName());
+            return clz.getDeclaredConstructor(Context.class,
+                    CameraCallback.class,
+                    PreviewImpl.class)
+                    .newInstance(context, callback, preview);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private int getBackFacingCameraLevel(Context context) {
@@ -113,12 +122,16 @@ public class CameraController {
 
     /**
      * 是否支持华为慢动作
-     *
      * @param context Context
      * @return true支持, false不支持
      */
-    private boolean isHwSlowMotionSupported(Context context) {
-        byte retcode = HwCamera.isDeviceSupported(context);
-        return retcode == HwCamera.HWCAMERA_SDK_AVAILABLE;
+    public boolean isHwSlowMotionSupported(Context context) {
+//        byte retcode = HwCamera.isDeviceSupported(context);
+//        boolean sdkSupport = retcode == HwCamera.HWCAMERA_SDK_AVAILABLE;
+//        boolean spSupport = SPConfig.getInstance().isSupportHwSuperSlow();
+//        return sdkSupport && spSupport;
+
+        //暂时都不支持
+        return false;
     }
 }

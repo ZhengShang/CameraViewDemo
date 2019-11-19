@@ -3,8 +3,9 @@ package cn.zhengshang.recorder;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.support.annotation.NonNull;
 import android.view.Surface;
+
+import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -45,6 +46,10 @@ public class MediaRecord {
     private boolean isRecording = false;
     // 记录Muxer工作中的状态
     private boolean isMuxing = false;
+
+    public MediaRecord() {
+    }
+
     private final AudioEncoderCore.Callback mAudioCallback = new AudioEncoderCore.Callback() {
 
         @Override
@@ -65,34 +70,6 @@ public class MediaRecord {
             }
         }
     };
-    private final VideoEncoderCore.Callback mVideoCallback = new VideoEncoderCore.Callback() {
-
-        @Override
-        public void onVideoOutputFormatChanged(@NonNull MediaFormat format) {
-            mVideoTrackId = addTrack(format);
-            if (canMuxing()) {
-                mMeidaMuxer.start();
-                isMuxing = true;
-            }
-        }
-
-        @Override
-        public void onVideoOutputBufferAvailable(@NonNull ByteBuffer buffer,
-                                                 @NonNull MediaCodec.BufferInfo info) {
-
-            if (isMuxing && canMuxing()) {
-                mMeidaMuxer.writeSampleData(mVideoTrackId, buffer, info);
-            }
-        }
-    };
-
-    public MediaRecord() {
-    }
-
-    public void setVideoSize(int width, int height) {
-        this.mVideoWidth = width;
-        this.mVideoHeight = height;
-    }
 
     public void setVideoFrameRate(int fps) {
         this.mVideoFps = fps;
@@ -151,6 +128,31 @@ public class MediaRecord {
         return trackId;
     }
 
+    private final VideoEncoderCore.Callback mVideoCallback = new VideoEncoderCore.Callback() {
+
+        @Override
+        public void onVideoOutputFormatChanged(@NonNull MediaFormat format) {
+            mVideoTrackId = addTrack(format);
+            if (canMuxing()) {
+                mMeidaMuxer.start();
+                isMuxing = true;
+            }
+        }
+
+        @Override
+        public void onVideoOutputBufferAvailable(@NonNull ByteBuffer buffer,
+                                                 @NonNull MediaCodec.BufferInfo info) {
+
+            if (isMuxing && canMuxing()) {
+                mMeidaMuxer.writeSampleData(mVideoTrackId, buffer, info);
+            }
+        }
+    };
+
+    public void setVideoSize(int width, int height) {
+        this.mVideoWidth = width;
+        this.mVideoHeight = height;
+    }
 
     public void prepare() {
 

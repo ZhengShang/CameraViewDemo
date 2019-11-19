@@ -10,7 +10,7 @@ import android.view.Surface;
 
 import java.io.IOException;
 
-import cn.zhengshang.base.CameraViewImpl;
+import cn.zhengshang.base.ZyCamera;
 import cn.zhengshang.config.CameraConfig;
 import cn.zhengshang.config.VideoConfig;
 
@@ -18,13 +18,13 @@ import static cn.zhengshang.controller.SoundController.SOUND_ID_START;
 
 public class MediaRecorderController {
 
-    private CameraViewImpl mCamera;
+    private ZyCamera mZyCamera;
     private MediaRecorder mMediaRecorder;
     private CameraConfig mCameraConfig;
-    private boolean mLock;
+    private State mMrState = State.INIT;
 
-    public MediaRecorderController(CameraViewImpl camera, CameraConfig config) {
-        mCamera = camera;
+    public MediaRecorderController(ZyCamera zyCamera, CameraConfig config) {
+        mZyCamera = zyCamera;
         mCameraConfig = config;
         mMediaRecorder = new MediaRecorder();
     }
@@ -35,19 +35,22 @@ public class MediaRecorderController {
      * @return 返回MediaRecorder
      * @throws IOException 配置失败的时候抛出此异常
      */
-    public void configForCamera2() throws IOException {
+    public void configForCamera2() throws Exception {
         if (mMediaRecorder == null) {
             mMediaRecorder = new MediaRecorder();
+        }
+        if (mMrState != State.INIT && mMrState != State.RESET) {
+            return;
         }
 
         VideoConfig config = mCameraConfig.getVideoConfig();
 
         if (!config.isMute()) {
-            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
         }
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        mMediaRecorder.setOutputFile(mCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
         mMediaRecorder.setVideoFrameRate(config.getFps());
         mMediaRecorder.setVideoSize(config.getSize().getWidth(), config.getSize().getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
@@ -63,10 +66,12 @@ public class MediaRecorderController {
 
         mMediaRecorder.setVideoEncodingBitRate(config.getBitrate());
         setMaxFileListener();
-
+//        mMediaRecorder.setOrientationHint(90); 竖屏//只能在prepare之前设置一次
+        //这里要根据屏幕方向，动态调节 竖屏0度  横屏左下顺时针 180度，
         mMediaRecorder.setOrientationHint(mCameraConfig.getOrientation());
 
         mMediaRecorder.prepare();
+        mMrState = State.PREPARED;
     }
 
     /**
@@ -77,24 +82,31 @@ public class MediaRecorderController {
      * @throws IOException 配置失败的时候抛出此异常
      */
     public MediaRecorder configForCamera1(CameraConfig cameraConfig, Camera camera) throws IOException {
+        resetRecorder();
         if (mMediaRecorder == null) {
             mMediaRecorder = new MediaRecorder();
         }
 
-        camera.unlock();
-        mMediaRecorder.setCamera(camera);
+//        camera.unlock();
+//        mMediaRecorder.setCamera(camera);
 
         SoundController.getInstance().playSound(SOUND_ID_START);
 
         VideoConfig config = cameraConfig.getVideoConfig();
         if (!config.isMute()) {
-            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+//            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
+
         }
-        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+//        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+
 
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        mMediaRecorder.setOutputFile(mCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
         mMediaRecorder.setVideoFrameRate(config.getFps());
+        Log.d("MediaRecorderController", "config.getSize().getWidth():" + config.getSize().getWidth());
+        Log.d("MediaRecorderController", "config.getSize().getHeight():" + config.getSize().getHeight());
         mMediaRecorder.setVideoSize(config.getSize().getWidth(), config.getSize().getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mMediaRecorder.setVideoEncodingBitRate(config.getBitrate());
@@ -111,21 +123,21 @@ public class MediaRecorderController {
         }
 
         setMaxFileListener();
-        mMediaRecorder.setOrientationHint(cameraConfig.getOrientation());
+        mMediaRecorder.setOrientationHint(mCameraConfig.getOrientation());
 
         mMediaRecorder.prepare();
         return mMediaRecorder;
     }
 
-    public void configForHighSpeed(int cameraId, CamcorderProfile profile) throws Exception {
-
+    public void configForHighSpeed(CamcorderProfile profile) throws Exception {
+        resetRecorder();
         if (mMediaRecorder == null) {
             mMediaRecorder = new MediaRecorder();
         }
         mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setProfile(profile);
-        mMediaRecorder.setOutputFile(mCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
         mMediaRecorder.setOrientationHint(mCameraConfig.getOrientation());
         setMaxFileListener();
         mMediaRecorder.prepare();
@@ -134,6 +146,8 @@ public class MediaRecorderController {
     private void setMaxFileListener() {
         if (mMediaRecorder != null) {
             mMediaRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
+                private boolean mLock;
+
                 @Override
                 public void onInfo(MediaRecorder mr, int what, int extra) {
                     //这个回调会连续出现2次,忽略掉一个
@@ -146,12 +160,23 @@ public class MediaRecorderController {
                             }
                         }, 1000);
                         Log.d("MediaRecorderGenerateor", "MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED");
-                        mCamera.stopRecordingVideo(false);
-                        mCamera.startRecordingVideo(false);
+                        mZyCamera.stopRecordingVideo(false);
+                        mZyCamera.startRecordingVideo(false);
                     }
                 }
             });
         }
+    }
+
+    /**
+     * 开始录制
+     */
+    public void startRecord() throws IllegalStateException {
+        if (mMrState != State.PREPARED) {
+            return;
+        }
+        mMediaRecorder.start();
+        mMrState = State.RECORDING;
     }
 
     /**
@@ -169,27 +194,32 @@ public class MediaRecorderController {
     }
 
     /**
-     * 开始录制
-     */
-    public void startRecord() throws IllegalStateException {
-        mMediaRecorder.start();
-    }
-
-    /**
      * 停止录制
      */
     public void stopRecord() {
+        resetRecorder();
+    }
+
+    private void resetRecorder() {
         if (mMediaRecorder == null) {
             return;
         }
         try {
-            if (mCameraConfig.isRecordingVideo()) {
+            if (mMrState == State.RECORDING) {
                 mMediaRecorder.stop();
+                mMrState = State.STOPPED;
             }
-            mMediaRecorder.reset();
-        } catch (IllegalStateException e) {
+            if (mMrState != State.RESET) {
+                mMediaRecorder.reset();
+                mMrState = State.RESET;
+            }
+        } catch (Exception e) {
             e.printStackTrace();
-            Log.e("MediaRecorderController", "stopRecord: failed.", e);
+            Log.e("MediaRecorderController", "reset: failed.", e);
+            if (mMrState != State.RESET) {
+                mMediaRecorder.reset();
+                mMrState = State.RESET;
+            }
         }
     }
 
@@ -201,13 +231,21 @@ public class MediaRecorderController {
             return;
         }
         try {
-            if (mCameraConfig.isRecordingVideo()) {
+            if (mMrState == State.RECORDING) {
                 mMediaRecorder.stop();
+                mMrState = State.STOPPED;
             }
-            mMediaRecorder.release();
+            if (mMrState == State.STOPPED) {
+                mMediaRecorder.release();
+            }
+            mMrState = State.INIT;
             mMediaRecorder = null;
         } catch (Exception e) {
             Log.e("MediaRecorderController", "releaseMediaRecorder failed. ", e);
         }
+    }
+
+    enum State {
+        INIT, PREPARED, RECORDING, STOPPED, RESET,
     }
 }

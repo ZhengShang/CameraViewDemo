@@ -3,7 +3,7 @@ package cn.zhengshang.config;
 import cn.zhengshang.base.Constants;
 import cn.zhengshang.base.Size;
 
-public class VideoConfig {
+public class VideoConfig implements Cloneable {
     /**
      * 视频录制开始和结束的声音
      */
@@ -107,5 +107,10 @@ public class VideoConfig {
     public VideoConfig setStabilization(boolean stabilization) {
         this.stabilization = stabilization;
         return this;
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 }

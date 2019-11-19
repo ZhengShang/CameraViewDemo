@@ -1,6 +1,5 @@
 package cn.zhengshang.cameraview;
 
-import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -10,30 +9,36 @@ import android.graphics.Bitmap;
 import android.media.MediaRecorder;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.annotation.IntDef;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.content.LocalBroadcastManager;
-import android.support.v4.os.ParcelableCompat;
-import android.support.v4.os.ParcelableCompatCreatorCallbacks;
-import android.support.v4.view.ViewCompat;
-import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Range;
 import android.widget.FrameLayout;
+
+import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.os.ParcelableCompat;
+import androidx.core.os.ParcelableCompatCreatorCallbacks;
+import androidx.core.view.ViewCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import cn.zhengshang.base.AspectRatio;
-import cn.zhengshang.base.CameraViewImpl;
 import cn.zhengshang.base.Constants;
 import cn.zhengshang.base.PreviewImpl;
 import cn.zhengshang.base.Size;
 import cn.zhengshang.base.TextureViewPreview;
+import cn.zhengshang.base.ZyCamera;
+import cn.zhengshang.config.CameraConfig;
+import cn.zhengshang.config.CaptureConfigHelper;
+import cn.zhengshang.config.CaptureMode;
+import cn.zhengshang.config.SPConfig;
 import cn.zhengshang.controller.CameraController;
 import cn.zhengshang.controller.DisplayOrientationDetector;
 import cn.zhengshang.controller.SoundController;
@@ -42,6 +47,7 @@ import cn.zhengshang.listener.CallbackBridge;
 import cn.zhengshang.listener.CameraError;
 import cn.zhengshang.listener.OnAeChangeListener;
 import cn.zhengshang.listener.OnCaptureImageCallback;
+import cn.zhengshang.listener.OnFaceDetectListener;
 import cn.zhengshang.listener.OnManualValueListener;
 import cn.zhengshang.listener.OnVideoOutputFileListener;
 import cn.zhengshang.listener.OnVolumeListener;
@@ -49,7 +55,7 @@ import cn.zhengshang.task.AvailableSpaceTask;
 import cn.zhengshang.task.VolumeTask;
 import cn.zhengshang.widget.FocusMarkerLayout;
 
-import static cn.zhengshang.base.Constants.BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO;
+import static cn.zhengshang.base.Constants.BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION;
 
 public class CameraView extends FrameLayout {
 
@@ -62,26 +68,37 @@ public class CameraView extends FrameLayout {
      * The camera device faces the same direction as the device's screen.
      */
     public static final int FACING_FRONT = Constants.FACING_FRONT;
+    public static String CAMERA_API;
+    private final CallbackBridge mCallbacks;
+    private final DisplayOrientationDetector mDisplayOrientationDetector;
+    ZyCamera mZyCamera;
+
     /**
      * Flash will not be fired.
      */
     public static final int FLASH_OFF = Constants.FLASH_OFF;
+
     /**
      * Flash will always be fired during snapshot.
      */
     public static final int FLASH_ON = Constants.FLASH_ON;
+
     /**
      * Constant emission of light during preview, auto-focus and snapshot.
      */
     public static final int FLASH_TORCH = Constants.FLASH_TORCH;
+
     /**
      * Flash will be fired automatically when required.
      */
     public static final int FLASH_AUTO = Constants.FLASH_AUTO;
+
     /**
      * Flash will be fired in red-eye reduction mode.
      */
     public static final int FLASH_RED_EYE = Constants.FLASH_RED_EYE;
+    private int startApi;
+
     /**
      * 网格线 无
      */
@@ -102,40 +119,31 @@ public class CameraView extends FrameLayout {
      * 网格线 对角线
      */
     public static final int GRID_DIAGONAL = Constants.GRID_DIAGONAL;
-    private final CallbackBridge mCallbacks;
-    private final DisplayOrientationDetector mDisplayOrientationDetector;
-    CameraViewImpl mImpl;
     /**
      * 显示对焦框、网格线的layout
      */
     private FocusMarkerLayout mFocusMarkerLayout;
+    private boolean mLoadLastCaptureMode;
+    private CaptureMode mCaptureMode = CaptureMode.NORMAL_VIDEO;
+
     private boolean mAdjustViewBounds;
+    private ExecutorService mSingleThreadExecutor;
+
     private PreviewImpl mPreview;
+
     private VolumeTask mVolumeTask;
+
     private CameraController mCameraController;
     private BroadcastReceiver mLocalBroadcast = new BroadcastReceiver() {
 
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (TextUtils.isEmpty(intent.getAction())) {
-                return;
-            }
-            if (BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO.equals(intent.getAction())) {
-                stop();
-                mImpl = mCameraController.switchToHighSpeedCamera(getContext(), mCallbacks, mPreview);
-                start();
+            if (BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION.equals(intent.getAction())) {
+                mCaptureMode = CaptureMode.UNKNOWN;
+                setCaptureMode(CaptureMode.SLOW_MOTION);
             }
         }
     };
-
-    public CameraView(Context context) {
-        this(context, null);
-    }
-
-    public CameraView(Context context, AttributeSet attrs) {
-        this(context, attrs, 0);
-    }
-
     @SuppressWarnings("WrongConstant")
     public CameraView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
@@ -144,33 +152,38 @@ public class CameraView extends FrameLayout {
             mDisplayOrientationDetector = null;
             return;
         }
+        SPConfig.getInstance().changeSpName(context, FACING_BACK);
         // Internal setup
         mPreview = createPreviewImpl(context);
         mCallbacks = new CallbackBridge(this);
         // Attributes
-        final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CameraView,
-                defStyleAttr,
-                R.style.Widget_CameraView);
-        int startApi = a.getInt(R.styleable.CameraView_cameraApi, 0);
+        final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CameraView);
+        startApi = a.getInt(R.styleable.CameraView_cameraApi, 0);
 
+        // Internal setup
         mCameraController = new CameraController(startApi);
+
         try {
-            mImpl = mCameraController.openCamera(context, mCallbacks, mPreview);
+            Class<? extends ZyCamera> cameraClz = mCameraController.autoInstanceCamera(context);
+            mZyCamera = mCameraController.newInstanceCamera(cameraClz, context, mCallbacks, mPreview);
         } catch (RuntimeException e) {
             mCallbacks.onFailed(CameraError.OPEN_FAILED);
             e.printStackTrace();
         }
-
         mAdjustViewBounds = a.getBoolean(R.styleable.CameraView_android_adjustViewBounds, false);
-        setFacing(a.getInt(R.styleable.CameraView_facing, FACING_BACK));
-        String aspectRatio = a.getString(R.styleable.CameraView_aspectRatio);
-        if (aspectRatio != null) {
-            setAspectRatio(AspectRatio.parse(aspectRatio));
-        } else {
-            setAspectRatio(Constants.DEFAULT_ASPECT_RATIO);
+//        setFacing(a.getInt(R.styleable.CameraView_facing, FACING_BACK));
+        //When RuntimeException throws, this will be null
+        if (mZyCamera != null) {
+            String aspectRatio = a.getString(R.styleable.CameraView_cv_aspectRatio);
+            if (aspectRatio != null) {
+                setAspectRatio(AspectRatio.parse(aspectRatio));
+            } else {
+                setAspectRatio(Constants.DEFAULT_ASPECT_RATIO);
+            }
+            setAutoFocus(a.getBoolean(R.styleable.CameraView_autoFocus, true));
+            setFlash(a.getInt(R.styleable.CameraView_flash, Constants.FLASH_AUTO));
         }
-        setAutoFocus(a.getBoolean(R.styleable.CameraView_autoFocus, true));
-        setFlash(a.getInt(R.styleable.CameraView_flash, Constants.FLASH_AUTO));
+        mLoadLastCaptureMode = a.getBoolean(R.styleable.CameraView_loadLastCaptureMode, true);
         a.recycle();
 
         mFocusMarkerLayout = new FocusMarkerLayout(getContext());
@@ -180,7 +193,8 @@ public class CameraView extends FrameLayout {
         mDisplayOrientationDetector = new DisplayOrientationDetector(context) {
             @Override
             public void onDisplayOrientationChanged(int displayOrientation) {
-                mImpl.setDisplayOrientation(displayOrientation);
+                //外部传入
+//                mImpl.setDisplayOrientation(displayOrientation);
             }
 
             @Override
@@ -192,42 +206,75 @@ public class CameraView extends FrameLayout {
         AvailableSpaceTask.monitorAvailableSpace(this);
         mVolumeTask = new VolumeTask();
         mVolumeTask.monitorVolume(this);
+
+
+        createConfig();
+
+    }
+
+    public CameraView(Context context) {
+        this(context, null);
+    }
+
+    public CameraView(Context context, AttributeSet attrs) {
+        this(context, attrs, 0);
+    }
+
+    private void createConfig() {
+        CAMERA_API = getCameraAPI();
     }
 
     @NonNull
     private PreviewImpl createPreviewImpl(Context context) {
-        PreviewImpl preview;
-        preview = new TextureViewPreview(context, this);
-//        preview = new SurfaceViewPreview(context, this);
+        TextureViewPreview preview = new TextureViewPreview(context, this);
         return preview;
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        if (mZyCamera == null) {
+            return;
+        }
         if (!isInEditMode()) {
             mDisplayOrientationDetector.enable(ViewCompat.getDisplay(this));
         }
+        if (mSingleThreadExecutor == null) {
+            mSingleThreadExecutor = Executors.newSingleThreadExecutor();
+        }
+
         SoundController.getInstance().loadSound();
 
         IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO);
+        intentFilter.addAction(BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION);
         LocalBroadcastManager.getInstance(getContext()).registerReceiver(mLocalBroadcast, intentFilter);
+
+        if (mLoadLastCaptureMode) {
+            setCaptureMode(SPConfig.getInstance().loadCaptureMode());
+        } else {
+            CaptureConfigHelper.applyNormalVideo(mZyCamera);
+        }
     }
 
     @Override
     protected void onDetachedFromWindow() {
+        if (mZyCamera == null) {
+            return;
+        }
         if (!isInEditMode()) {
             mDisplayOrientationDetector.disable();
         }
+        SPConfig.getInstance().saveCaptureMode(mCaptureMode);
         LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(mLocalBroadcast);
-
         super.onDetachedFromWindow();
 
-        if (mCallbacks != null) {
+        if (mCallbacks != null && mCallbacks.getCallbacks() != null) {
             mCallbacks.clear();
         }
         SoundController.getInstance().release();
+        if (mSingleThreadExecutor != null) {
+            mSingleThreadExecutor.shutdown();
+        }
     }
 
     @Override
@@ -280,17 +327,37 @@ public class CameraView extends FrameLayout {
         if (ratio != null) {
 
             if (height < width * ratio.getY() / ratio.getX()) {
-                mImpl.getView().measure(
+                mZyCamera.getView().measure(
                         MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
                         MeasureSpec.makeMeasureSpec(width * ratio.getY() / ratio.getX(),
                                 MeasureSpec.EXACTLY));
             } else {
-                mImpl.getView().measure(
+                mZyCamera.getView().measure(
                         MeasureSpec.makeMeasureSpec(height * ratio.getX() / ratio.getY(),
                                 MeasureSpec.EXACTLY),
                         MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
             }
         }
+    }
+
+    /**
+     * Open a camera device and start showing camera preview. This is typically called from
+     * Activity#onResume().
+     */
+    public void start() {
+        mZyCamera.start();
+        if (mZyCamera.getAERange() != null) {
+            mFocusMarkerLayout.setMaxAeRange(mZyCamera.getAERange().getUpper());
+        }
+        mFocusMarkerLayout.setImpl(mZyCamera);
+    }
+
+    /**
+     * Stop camera preview and close the device. This is typically called from
+     * Activity#onPause().
+     */
+    public void stop() {
+        mZyCamera.stop();
     }
 
     @Override
@@ -318,35 +385,18 @@ public class CameraView extends FrameLayout {
     }
 
     /**
-     * Open a camera device and start showing camera preview. This is typically called from
-     * {@link Activity#onResume()}.
-     */
-    public void start() {
-        mImpl.start();
-        post(new Runnable() {
-            @Override
-            public void run() {
-                if (mImpl.getAERange() != null) {
-                    mFocusMarkerLayout.setMaxAeRange(mImpl.getAERange().getUpper());
-                }
-                mFocusMarkerLayout.setImpl(mImpl);
-            }
-        });
-    }
-
-    /**
-     * Stop camera preview and close the device. This is typically called from
-     * {@link Activity#onPause()}.
-     */
-    public void stop() {
-        mImpl.stop();
-    }
-
-    /**
      * @return {@code true} if the camera is opened.
      */
     public boolean isCameraOpened() {
-        return mImpl.isCameraOpened();
+        return mZyCamera != null && mZyCamera.isCameraOpened();
+    }
+
+    public void addOnManualValueListener(OnManualValueListener onManualValueListener) {
+        mZyCamera.addOnManualValueListener(onManualValueListener);
+    }
+
+    public void addOnAeChangedListener(OnAeChangeListener onAeChangeListener) {
+        mZyCamera.addOnAeChangedListener(onAeChangeListener);
     }
 
     /**
@@ -369,24 +419,12 @@ public class CameraView extends FrameLayout {
         mCallbacks.remove(callback);
     }
 
-    public void addOnManualValueListener(OnManualValueListener onManualValueListener) {
-        mImpl.addOnManualValueListener(onManualValueListener);
-    }
-
-    public void addOnAeChangedListener(OnAeChangeListener onAeChangeListener) {
-        mImpl.addOnAeChangedListener(onAeChangeListener);
-    }
-
     public void addOnCaptureImageCallback(OnCaptureImageCallback onCaptureImageCallback) {
-        mImpl.addOnCaptureImageCallback(onCaptureImageCallback);
-    }
-
-    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
-        mVolumeTask.setOnVolumeListener(onVolumeListener);
+        mZyCamera.addOnCaptureImageCallback(onCaptureImageCallback);
     }
 
     public void addOnVideoOutputFileListener(OnVideoOutputFileListener onVideoOutputFileListener) {
-        mImpl.addOnVideoOutputFileListener(onVideoOutputFileListener);
+        mZyCamera.addOnVideoOutputFileListener(onVideoOutputFileListener);
     }
 
     /**
@@ -396,6 +434,21 @@ public class CameraView extends FrameLayout {
      */
     public boolean getAdjustViewBounds() {
         return mAdjustViewBounds;
+    }
+
+    public void addOnVolumeListener(OnVolumeListener onVolumeListener) {
+        mVolumeTask.setOnVolumeListener(onVolumeListener);
+    }
+
+    /**
+     * Gets the direction that the current camera faces.
+     *
+     * @return The camera facing.
+     */
+    @Facing
+    public int getFacing() {
+        //noinspection WrongConstant
+        return mZyCamera.getFacing();
     }
 
     /**
@@ -411,35 +464,31 @@ public class CameraView extends FrameLayout {
     }
 
     /**
-     * Gets the direction that the current camera faces.
-     *
-     * @return The camera facing.
-     */
-    @Facing
-    public int getFacing() {
-        //noinspection WrongConstant
-        return mImpl.getFacing();
-    }
-
-    /**
      * Chooses camera by the direction it faces.
      *
      * @param facing The camera facing. Must be either {@link #FACING_BACK} or
      *               {@link #FACING_FRONT}.
      */
     public void setFacing(@Facing int facing) {
-        mImpl.setFacing(facing);
+        SPConfig.getInstance().saveCaptureMode(mCaptureMode);
+        mZyCamera.setFacing(facing);
+
+        SPConfig.getInstance().changeSpName(getContext(), facing);
+        setCaptureMode(SPConfig.getInstance().loadCaptureMode());
+        setBitrate(SPConfig.getInstance().loadBitrate());
+        setCaptureRate(SPConfig.getInstance().loadCaptureRate());
+        setVideoSize(SPConfig.getInstance().loadVideoSize());
     }
 
     public String getCameraId() {
-        return mImpl.getCameraId();
+        return mZyCamera.getCameraId();
     }
 
     /**
      * Gets all the aspect ratios supported by the current camera.
      */
     public Set<AspectRatio> getSupportedAspectRatios() {
-        return mImpl.getSupportedAspectRatios();
+        return mZyCamera.getSupportedAspectRatios();
     }
 
     /**
@@ -449,7 +498,7 @@ public class CameraView extends FrameLayout {
      */
     @Nullable
     public AspectRatio getAspectRatio() {
-        return mImpl.getAspectRatio();
+        return mZyCamera.getAspectRatio();
     }
 
     /**
@@ -458,7 +507,7 @@ public class CameraView extends FrameLayout {
      * @param ratio The {@link AspectRatio} to be set.
      */
     public void setAspectRatio(@NonNull AspectRatio ratio) {
-        if (mImpl.setAspectRatio(ratio)) {
+        if (mZyCamera.setAspectRatio(ratio)) {
             requestLayout();
         }
     }
@@ -470,7 +519,7 @@ public class CameraView extends FrameLayout {
      * disabled, or if it is not supported by the current camera.
      */
     public boolean getAutoFocus() {
-        return mImpl.getAutoFocus();
+        return mZyCamera.getAutoFocus();
     }
 
     /**
@@ -481,16 +530,15 @@ public class CameraView extends FrameLayout {
      *                  disable it.
      */
     public void setAutoFocus(boolean autoFocus) {
-        mImpl.setAutoFocus(autoFocus);
+        mZyCamera.setAutoFocus(autoFocus);
     }
 
     public int[] getAvailableFlashModes() {
-        if (mImpl.isFlashAvailable()) {
+        if (mZyCamera.isFlashAvailable()) {
             return new int[]{FLASH_OFF, FLASH_ON, FLASH_TORCH, FLASH_AUTO};
-        } else if (mImpl.getFacing() == FACING_FRONT) {
+        } else {
             return new int[]{FLASH_OFF};
         }
-        return new int[]{};
     }
 
     /**
@@ -501,7 +549,7 @@ public class CameraView extends FrameLayout {
     @Flash
     public int getFlash() {
         //noinspection WrongConstant
-        return mImpl.getFlash();
+        return mZyCamera.getFlash();
     }
 
     /**
@@ -510,97 +558,102 @@ public class CameraView extends FrameLayout {
      * @param flash The desired flash mode.
      */
     public void setFlash(@Flash int flash) {
-        mImpl.setFlash(flash);
+        mZyCamera.setFlash(flash);
     }
 
     public boolean isTorch() {
-        return mImpl.isTorch();
+        return mZyCamera.isTorch();
     }
 
     public void setTorch(boolean open) {
-        mImpl.setTorch(open);
+        mZyCamera.setTorch(open);
     }
 
     /**
      * 获取视频码率
      */
     public int getBitrate() {
-        return mImpl.getBitrate();
+        return mZyCamera.getBitrate();
     }
 
     /**
      * 设置视频码率，没有带单位，需要手动乘以100000
      */
     public void setBitrate(int bitrate) {
-        mImpl.setBitrate(bitrate);
+        mZyCamera.setBitrate(bitrate);
     }
 
     public double getCaptureRate() {
-        return mImpl.getCaptureRate();
+        return mZyCamera.getCaptureRate();
     }
 
     public void setCaptureRate(double rate) {
-        mImpl.setCaptureRate(rate);
+        mZyCamera.setCaptureRate(rate);
     }
 
     public long getAvailableSpace() {
-        return mImpl.getAvailableSpace();
+        return mZyCamera.getAvailableSpace();
+    }
+
+    public void setAvailableSpace(long space) {
+        mZyCamera.setAvailableSpace(space);
     }
 
     public int getPhoneOrientation() {
-        return mImpl.getPhoneOrientation();
+        return mZyCamera.getPhoneOrientation();
     }
 
     /**
      * 设置当前手机的真实朝向.
      * 因为在{ CameraActivity2}中,设置了强制横屏,所以{@link DisplayOrientationDetector#onDisplayOrientationChanged(int)}
      * 不会随着手机方向的改变而触发.
-     * 所以单独使用一个变量{@link CameraViewImpl#mPhoneOrientation}来保存当前手机的方向,
+     * 所以单独使用一个变量 CameraViewImpl#mPhoneOrientation 来保存当前手机的方向,
      * 然后在拍摄完照片或录制完视频的时候,旋转一定的方向,以使输出的图像永远是竖直朝向的
      *
      * @param orientation 当前的手机方向,[0,90,180,270]
      */
     public void setPhoneOrientation(int orientation) {
-        mImpl.setPhoneOrientation(orientation);
+        mZyCamera.setPhoneOrientation(orientation);
+        mPreview.setDisplayOrientation(orientation);
     }
 
     /**
      * 获取视频输出路径
      */
     public String getVideoOutputFilePath() {
-        return mImpl.getVideoOutputFilePath();
+        return mZyCamera.getVideoOutputFilePath();
     }
 
     public int getAwb() {
-        return mImpl.getAwbMode();
+        return mZyCamera.getAwbMode();
     }
 
     public int getAe() {
-        return mImpl.getAe();
+        return mZyCamera.getAe();
     }
 
     public long getSec() {
-        return mImpl.getSec();
+        return mZyCamera.getSec();
     }
 
     public int getIso() {
-        return mImpl.getIso();
+        return mZyCamera.getIso();
     }
 
     public int getManualWB() {
-        return mImpl.getManualWB();
+        return mZyCamera.getManualWB();
     }
 
     public void setPlaySound(boolean playSound) {
-        mImpl.setPlaySound(playSound);
+        mZyCamera.setPlaySound(playSound);
     }
 
     public boolean isMuteVideo() {
-        return mImpl.getMuteVideo();
+        return mZyCamera.getMuteVideo();
     }
 
     public void setMuteVideo(boolean muteVideo) {
-        mImpl.setMuteVideo(muteVideo);
+        mZyCamera.setMuteVideo(muteVideo);
     }
 
     /**
@@ -608,111 +661,142 @@ public class CameraView extends FrameLayout {
      * {@link Callback#onPictureTaken(CameraView, byte[])}.
      */
     public void takePicture() {
-        mImpl.takePicture();
+        mZyCamera.takePicture();
     }
 
-    public void takeBurstPicture() {
-        mImpl.takeBurstPictures();
+    public void takeBurstPictures() {
+        mZyCamera.takeBurstPictures();
     }
 
     public void stopBurstPicture() {
-        mImpl.stopBurstPicture();
+        mZyCamera.stopBurstPicture();
     }
 
     public void startRecordingVideo() {
-        mImpl.startRecordingVideo(true);
+        mZyCamera.startRecordingVideo(true);
     }
 
     public void stopRecordingVideo() {
-        mImpl.stopRecordingVideo(true);
+        mZyCamera.stopRecordingVideo(true);
     }
 
     public boolean isRecordingVideo() {
-        return mImpl.isRecordingVideo();
+        return mZyCamera.isRecordingVideo();
     }
 
     public Size getPicSize() {
-        return mImpl.getPicSize();
+        return mZyCamera.getPicSize();
     }
 
     public void setPicSize(Size size) {
-        mImpl.setPicSize(size);
+        mZyCamera.setPicSize(size);
     }
 
     public int getPicFormat() {
-        return mImpl.getPicFormat();
+        return mZyCamera.getPicFormat();
     }
 
     public void setPicFormat(int format) {
-        mImpl.setPicFormat(format);
+        mZyCamera.setPicFormat(format);
     }
 
     public Size getVideoSize() {
-        return mImpl.getVideoSize();
+        return mZyCamera.getVideoSize();
     }
 
     public void setVideoSize(Size size) {
-        mImpl.setVideoSize(size);
+        if (!mZyCamera.getVideoSize().equals(size)) {
+            mZyCamera.setVideoSize(size, true);
+
+            if (size.getFps() > 30) {
+                setCaptureMode(CaptureMode.HIGH_SPEED_VIDEO);
+            } else {
+                setCaptureMode(CaptureMode.NORMAL_VIDEO);
+            }
+        }
     }
 
     public int getFps() {
-        return mImpl.getFps();
+        return mZyCamera.getFps();
     }
 
     public void setFps(int fps) {
-        mImpl.setFps(fps);
+        mZyCamera.setFps(fps);
     }
 
     public SortedSet<Size> getSupportedPicSizes() {
-        return mImpl.getSupportedPicSizes();
-    }
-
-    public boolean isSupported60Fps() {
-        return mImpl.isSupported60Fps();
+        return mZyCamera.getSupportedPicSizes();
     }
 
     public SortedSet<Size> getSupportedVideoSize() {
-        return mImpl.getSupportedVideoSize();
+        return mZyCamera.getSupportedVideoSize();
     }
 
     public float getFpsWithSize(android.util.Size size) {
-        return mImpl.getFpsWithSize(size);
+        return mZyCamera.getFpsWithSize(size);
     }
 
+    @Deprecated
     public float getMaxZoom() {
-        return mImpl.getMaxZoom();
+        return mZyCamera.getMaxZoom();
     }
 
+    @Deprecated
     public List<Integer> getZoomRatios() {
-        return mImpl.getZoomRatios();
+        return mZyCamera.getZoomRatios();
     }
 
     public String getCameraAPI() {
-        return mImpl.getCameraAPI();
+        return mZyCamera.getCameraAPI();
     }
 
     public void zoomIn() {
-        mImpl.zoomIn();
+        mZyCamera.zoomIn();
     }
 
     public void zoomOut() {
-        mImpl.zoomOut();
+        mZyCamera.zoomOut();
+    }
+
+    /**
+     * 连续焦距放大
+     *
+     * @param begin true 开始, false 停止
+     */
+    public void continueZoomIn(boolean begin) {
+
+    }
+
+    /**
+     * 连续焦距缩小
+     *
+     * @param begin true 开始, false 停止
+     */
+    public void continueZoomOut(boolean begin) {
+
     }
 
     public void focusNear() {
-        mImpl.foucsNear();
+        mZyCamera.foucsNear();
     }
 
     public void focusFar() {
-        mImpl.focusFar();
+        mZyCamera.focusFar();
     }
 
     public void setWTlen(float value) {
-        mImpl.scaleZoom(value);
+        mZyCamera.scaleZoom(value);
     }
 
     public int getGridType() {
         return mFocusMarkerLayout.getGridType();
+    }
+
+    public int[] getSupportAWBModes() {
+        if (getFacing() == CameraView.FACING_FRONT) {
+            return new int[0];
+        }
+        return mZyCamera.getSupportAWBModes();
     }
 
     public void setGridType(int type) {
@@ -720,108 +804,116 @@ public class CameraView extends FrameLayout {
         mFocusMarkerLayout.postInvalidate();
     }
 
-    public int[] getSupportAWBModes() {
-        return mImpl.getSupportAWBModes();
-    }
-
     public void setAWBMode(int mode) {
-        mImpl.setAWBMode(mode);
+        mZyCamera.setAWBMode(mode);
     }
 
     public void setHdrMode(boolean hdr) {
-        mImpl.setHdrMode(hdr);
+        mZyCamera.setHdrMode(hdr);
+    }
+
+    public boolean isSupportedHdr() {
+        return mZyCamera.isSupportedHdr();
     }
 
     public boolean isSupportedStabilize() {
-        return mImpl.isSupportedStabilize();
+        return mZyCamera.isSupportedStabilize();
     }
 
     public boolean getStabilizeEnable() {
-        return mImpl.getStabilizeEnable();
+        return mZyCamera.getStabilizeEnable();
     }
 
     public void setStabilizeEnable(boolean enable) {
-        mImpl.setStabilizeEnable(enable);
+        mZyCamera.setStabilizeEnable(enable);
     }
 
     public boolean isSupportedManualMode() {
-        return mImpl.isSupportedManualMode();
+        return mZyCamera.isSupportedManualMode();
     }
 
     public void setIsoAuto() {
-        mImpl.setIsoAuto();
+        mZyCamera.setIsoAuto();
     }
 
     public void setManualMode(boolean manual) {
-        mImpl.setManualMode(manual);
+        mZyCamera.setManualMode(manual);
     }
 
     public boolean isManualAESupported() {
-        return mImpl.isManualAESupported();
+        return mZyCamera.isManualAESupported();
     }
 
     public Range<Integer> getAERange() {
-        return mImpl.getAERange();
+        return mZyCamera.getAERange();
     }
 
     public void setAEValue(int value) {
-        mImpl.setAEValue(value);
+        mZyCamera.setAEValue(value);
     }
 
     public float getAeStep() {
-        return mImpl.getAeStep();
+        return mZyCamera.getAeStep();
     }
 
     public boolean isManualSecSupported() {
-        return mImpl.isManualSecSupported();
+        return mZyCamera.isManualSecSupported();
     }
 
     public Range<Long> getSecRange() {
-        return mImpl.getSecRange();
+        return mZyCamera.getSecRange();
     }
 
     public void setSecValue(long value) {
-        mImpl.setSecValue(value);
+        mZyCamera.setSecValue(value);
     }
 
     public boolean isManualISOSupported() {
-        return mImpl.isManualISOSupported();
+        return mZyCamera.isManualISOSupported();
     }
 
     public Object getISORange() {
-        return mImpl.getISORange();
+        return mZyCamera.getISORange();
     }
 
     public void setISOValue(int value) {
-        mImpl.setISOValue(value);
+        mZyCamera.setISOValue(value);
     }
 
     public boolean isManualWBSupported() {
-        return mImpl.isManualWBSupported();
+        return mZyCamera.isManualWBSupported();
     }
 
     public Range<Integer> getManualWBRange() {
-        return mImpl.getManualWBRange();
+        return mZyCamera.getManualWBRange();
     }
 
     public void setManualWBValue(int value) {
-        mImpl.setManualWBValue(value);
+        mZyCamera.setManualWBValue(value);
     }
 
     public boolean isManualAFSupported() {
-        return mImpl.isManualAFSupported();
+        return mZyCamera.isManualAFSupported();
+    }
+
+    public void lockAEandAF() {
+        mZyCamera.lockAEandAF();
+    }
+
+    public void unLockAEandAF() {
+        mZyCamera.unLockAEandAF();
     }
 
     public float getAFMaxValue() {
-        return mImpl.getAFMaxValue();
+        return mZyCamera.getAFMaxValue();
     }
 
     public float getAf() {
-        return mImpl.getAf();
+        return mZyCamera.getAf();
     }
 
     public float getWt() {
-        return mImpl.getWt();
+        return mZyCamera.getWt();
     }
 
     /**
@@ -837,33 +929,42 @@ public class CameraView extends FrameLayout {
      * 为了保持在外层调用一致的原则,特意添加此方法.
      *
      * @return 返回当前的缩放比例
+     * @deprecated
      */
     public float getZoomRatio() {
-        return mImpl.getZoomRatio();
+        return mZyCamera.getZoomRatio();
     }
 
     public void stopSmoothFocus() {
-        mImpl.stopSmoothFocus();
+        mZyCamera.stopSmoothFocus();
     }
 
     public void startSmoothFocus(float start, float end, long duration) {
-        mImpl.startSmoothFocus(start, end, duration);
+        mZyCamera.startSmoothFocus(start, end, duration);
     }
 
     public void stopSmoothZoom() {
-        mImpl.stopSmoothZoom();
+        mZyCamera.stopSmoothZoom();
     }
 
     public void startSmoothZoom(float start, float end, long duration) {
-        mImpl.startSmoothZoom(start, end, duration);
+        mZyCamera.startSmoothZoom(start, end, duration);
     }
 
     public void setManualAFValue(float value) {
-        mImpl.setAFValue(value);
+        mZyCamera.setAFValue(value);
     }
 
     public boolean isManualWTSupported() {
-        return mImpl.isManualWTSupported();
+        return mZyCamera.isManualWTSupported();
+    }
+
+    public MediaRecorder getMediaRecorder() {
+        return mZyCamera.getMediaRecorder();
+    }
+
+    public boolean isSupportFaceDetect() {
+        return mZyCamera.isSupportFaceDetect();
     }
 
     public PreviewImpl getPreview() {
@@ -894,8 +995,95 @@ public class CameraView extends FrameLayout {
         mFocusMarkerLayout.showAeAdjust();
     }
 
-    public MediaRecorder getMediaRecorder() {
-        return mImpl.getMediaRecorder();
+    public void setFaceDetect(boolean open) {
+        mZyCamera.setFaceDetect(open);
+    }
+
+    public void addOnFaceDetectListener(OnFaceDetectListener onFaceDetectListener) {
+        mZyCamera.addOnFaceDetectListener(onFaceDetectListener);
+    }
+
+    private void switchCamera(Class<? extends ZyCamera> clz, boolean animate) {
+        if (Constants.CAMERA_API_CAMERA1.equals(mZyCamera.getCameraAPI())) {
+            return;
+        }
+        boolean sameClz = mZyCamera.getClass().equals(clz);
+        if (sameClz) {
+            return;
+        }
+        if (animate) {
+            mFocusMarkerLayout.blurPreview(mPreview.getFrameBitmap());
+        }
+        stop();
+        mZyCamera = mCameraController.newInstanceCamera(clz, getContext(), mCallbacks, mPreview);
+        start();
+        if (animate) {
+            mFocusMarkerLayout.switchCamera();
+        }
+    }
+
+    private void switchCamera(Class<? extends ZyCamera> clz) {
+        switchCamera(clz, true);
+    }
+
+    public CaptureMode getCaptureMode() {
+        return mCaptureMode;
+    }
+
+    public void setCaptureMode(CaptureMode captureMode) {
+        if (mSingleThreadExecutor == null) return;
+        mSingleThreadExecutor.execute(() -> {
+            if (captureMode == mCaptureMode) {
+                return;
+            }
+            mCaptureMode = captureMode;
+
+            switch (captureMode) {
+                case SLOW_MOTION:
+                    CaptureConfigHelper.applySlowMotion(mZyCamera);
+                    switchCamera(mCameraController.autoInstanceCamera(getContext()));
+                    break;
+                case VIDEO:
+                    CaptureConfigHelper.applyNormalVideo(mZyCamera);
+                    if (CaptureConfigHelper.isHighSpeedVideo(mZyCamera)) {
+                        setCaptureMode(CaptureMode.HIGH_SPEED_VIDEO);
+                    } else {
+                        setCaptureMode(CaptureMode.NORMAL_VIDEO);
+                    }
+                    break;
+                case HIGH_SPEED_VIDEO:
+                    //由于DC相机界面固定使用Camera1, 而那里又重新设置了视频大小为30fps,所以在
+                    //高帧率的情况下切换过去,再返回会造成视频只有30fps的情况, 需要避免.
+                    if (getVideoSize().getFps() == 30) {
+                        setCaptureMode(CaptureMode.NORMAL_VIDEO);
+                        return;
+                    }
+                    switchCamera(CameraHighSpeedVideo.class);
+                    break;
+                case NORMAL_VIDEO:
+                    switchCamera(mCameraController.autoInstanceCamera(getContext()));
+                    break;
+                case TIMELAPSE:
+                case MOVING_TIMELAPSE:
+                    CaptureConfigHelper.applyTimeLapse(mZyCamera);
+                    switchCamera(mCameraController.autoInstanceCamera(getContext()), false);
+                    break;
+                case FOCUS_TIMELAPSE:
+                    CaptureConfigHelper.applyNormalVideo(mZyCamera);
+                    switchCamera(mCameraController.autoInstanceCamera(getContext()), false);
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+
+    public CameraConfig getCameraConfig() {
+        return mZyCamera.getCameraConfig();
+    }
+
+    public void setCameraConfig(CameraConfig cameraConfig) {
+        mZyCamera.setCameraConfig(cameraConfig);
     }
 
     /**
@@ -915,24 +1103,13 @@ public class CameraView extends FrameLayout {
 
     protected static class SavedState extends BaseSavedState {
 
-        public static final Creator<SavedState> CREATOR
-                = ParcelableCompat.newCreator(new ParcelableCompatCreatorCallbacks<SavedState>() {
-
-            @Override
-            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                return new SavedState(in, loader);
-            }
-
-            @Override
-            public SavedState[] newArray(int size) {
-                return new SavedState[size];
-            }
-
-        });
         @Facing
         int facing;
+
         AspectRatio ratio;
+
         boolean autoFocus;
+
         @Flash
         int flash;
 
@@ -957,6 +1134,21 @@ public class CameraView extends FrameLayout {
             out.writeByte((byte) (autoFocus ? 1 : 0));
             out.writeInt(flash);
         }
+
+        public static final Creator<SavedState> CREATOR
+                = ParcelableCompat.newCreator(new ParcelableCompatCreatorCallbacks<SavedState>() {
+
+            @Override
+            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                return new SavedState(in, loader);
+            }
+
+            @Override
+            public SavedState[] newArray(int size) {
+                return new SavedState[size];
+            }
+
+        });
 
     }
 }

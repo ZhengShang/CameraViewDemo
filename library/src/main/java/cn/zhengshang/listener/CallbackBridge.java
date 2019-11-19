@@ -10,10 +10,13 @@ public class CallbackBridge implements CameraCallback {
 
     private boolean mRequestLayoutOnOpen;
 
-    private WeakReference<CameraView> cameraView;
+    protected WeakReference<CameraView> cameraView;
 
     public CallbackBridge(CameraView cameraView) {
         this.cameraView = new WeakReference<>(cameraView);
+    }
+
+    public CallbackBridge() {
     }
 
     public void add(Callback callback) {
@@ -36,7 +39,7 @@ public class CallbackBridge implements CameraCallback {
         if (mRequestLayoutOnOpen) {
             mRequestLayoutOnOpen = false;
             if (cameraView.get() != null) {
-                cameraView.get().requestLayout();
+                cameraView.get().post(() -> cameraView.get().requestLayout());
             }
         }
         for (Callback callback : mCallbacks) {
@@ -84,6 +87,10 @@ public class CallbackBridge implements CameraCallback {
         for (Callback callback : mCallbacks) {
             callback.onVideoRecordingFailed(cameraView.get());
         }
+    }
+
+    public ArrayList<Callback> getCallbacks() {
+        return mCallbacks;
     }
 
     public void reserveRequestLayoutOnOpen() {

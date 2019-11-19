@@ -17,10 +17,31 @@ public class AvailableSpaceTask {
     private Handler mWorkHandler;
 
     private CameraView mCameraView;
+
+    private AvailableSpaceTask(CameraView cameraView) {
+        mCameraView = cameraView;
+        cameraView.addCallback(mCallback);
+    }
+
+    /**
+     * 初始化监控剩余空间Task
+     * @param cameraView 依赖的CaemraView
+     */
+    public static void monitorAvailableSpace(CameraView cameraView) {
+        new AvailableSpaceTask(cameraView);
+    }
+
+    private void startThread() {
+        mWorkThread = new HandlerThread("getAvailableSpace");
+        mWorkThread.start();
+        mWorkHandler = new Handler(mWorkThread.getLooper());
+    }
+
     private Runnable mRunnable = new Runnable() {
         @Override
         public void run() {
             long availableSpace = CameraUtil.getAvailableSpace();
+            mCameraView.setAvailableSpace(availableSpace);
             if (availableSpace <= Constants.LOW_STORAGE_THRESHOLD_BYTES) {
                 tintAndStopRecording();
             } else {
@@ -28,6 +49,14 @@ public class AvailableSpaceTask {
             }
         }
     };
+
+    private void start() {
+        mWorkHandler.post(mRunnable);
+    }
+
+    private void stop() {
+        mWorkHandler.removeCallbacks(mRunnable);
+    }
     private Callback mCallback = new Callback() {
 
         @Override
@@ -56,47 +85,6 @@ public class AvailableSpaceTask {
         }
     };
 
-    private AvailableSpaceTask(CameraView cameraView) {
-        mCameraView = cameraView;
-        cameraView.addCallback(mCallback);
-    }
-
-    /**
-     * 初始化监控剩余空间Task
-     *
-     * @param cameraView 依赖的CaemraView
-     */
-    public static void monitorAvailableSpace(CameraView cameraView) {
-        new AvailableSpaceTask(cameraView);
-    }
-
-    private void startThread() {
-        mWorkThread = new HandlerThread("getAvailableSpace");
-        mWorkThread.start();
-        mWorkHandler = new Handler(mWorkThread.getLooper());
-    }
-
-    private void quitThread() {
-        if (mWorkThread != null) {
-            mWorkThread.quitSafely();
-            try {
-                mWorkThread.join();
-                mWorkThread = null;
-                mWorkHandler = null;
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    private void start() {
-        mWorkHandler.post(mRunnable);
-    }
-
-    private void stop() {
-        mWorkHandler.removeCallbacks(mRunnable);
-    }
-
     private void tintAndStopRecording() {
         new Handler(Looper.getMainLooper())
                 .post(new Runnable() {
@@ -111,5 +99,18 @@ public class AvailableSpaceTask {
                                 mCameraView.getPhoneOrientation());
                     }
                 });
+    }
+
+    private void quitThread() {
+        if (mWorkThread != null) {
+            mWorkThread.quit();
+            try {
+                mWorkThread.join();
+                mWorkThread = null;
+                mWorkHandler = null;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

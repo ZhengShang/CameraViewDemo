@@ -2,10 +2,11 @@ package cn.zhengshang.controller;
 
 import android.content.Context;
 import android.content.Intent;
-import android.support.v4.content.LocalBroadcastManager;
+
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import static cn.zhengshang.base.Constants.BROADCAST_ACTION_RECORING_STOP;
-import static cn.zhengshang.base.Constants.BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO;
+import static cn.zhengshang.base.Constants.BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION;
 import static cn.zhengshang.base.Constants.BROADCAST_ACTION_TAKE_PHOTO;
 
 public class BroadcastController {
@@ -31,12 +32,11 @@ public class BroadcastController {
     }
 
     /**
-     * 发送切换高帧率录制视频的广播
+     * 用于华为手机在第一次进入华为超级慢动作时, 发现不支持, 然后切换到普通的慢动作
      */
-    public static void sendSwitchToHighSpeedVideoAction(Context context) {
+    public static void sendSwitchToNormalSlowAction(Context context) {
         Intent intent = new Intent();
-        intent.setAction(BROADCAST_ACTION_SWITCH_TO_HIGH_SPEED_VIDEO);
+        intent.setAction(BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION);
         LocalBroadcastManager.getInstance(context).sendBroadcast(intent);
     }
-
 }

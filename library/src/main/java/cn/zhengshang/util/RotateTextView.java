@@ -1,4 +1,4 @@
-package cn.zhengshang.widget;
+package cn.zhengshang.util;
 
 import android.content.Context;
 import android.graphics.Canvas;

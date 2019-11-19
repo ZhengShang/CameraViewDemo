@@ -7,10 +7,11 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.drawable.BitmapDrawable;
-import android.support.annotation.Nullable;
-import android.support.v4.content.ContextCompat;
 import android.util.AttributeSet;
 import android.view.View;
+
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 
 import cn.zhengshang.cameraview.R;
 
@@ -62,15 +63,6 @@ public class AEsun extends View {
     private boolean mIsShowLine;
 
     private OnAEChangeListener mOnAEChangeListener;
-    private Runnable mHideLineTask = new Runnable() {
-        @Override
-        public void run() {
-            if (isAttachedToWindow()) {
-                hideLine();
-                invalidate();
-            }
-        }
-    };
 
     public AEsun(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -89,6 +81,16 @@ public class AEsun extends View {
         mHalfDistance = mSunBitmapHeight / 2 + SUN_EDGE_MARGIN;
 
     }
+
+    private Runnable mHideLineTask = new Runnable() {
+        @Override
+        public void run() {
+            if (isAttachedToWindow()) {
+                hideLine();
+                invalidate();
+            }
+        }
+    };
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
@@ -117,11 +119,6 @@ public class AEsun extends View {
             //bottom line segment
             canvas.drawLine(mCenterX, mBottomLineSegment.x, mCenterX, mBottomLineSegment.y, mPaint);
         }
-    }
-
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        setMeasuredDimension(2 * mHalfDistance, heightMeasureSpec);
     }
 
     private void showLine() {
@@ -187,6 +184,11 @@ public class AEsun extends View {
         mTopLineSegment.y = mSunTopCoor - SUN_EDGE_MARGIN;
         mBottomLineSegment.x = mSunTopCoor + mSunBitmapHeight + SUN_EDGE_MARGIN;
         mBottomLineSegment.y = getHeight() - mHalfDistance;
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        setMeasuredDimension(2 * mHalfDistance, heightMeasureSpec);
     }
 
     public void setOnAEChangeListener(OnAEChangeListener onAEChangeListener) {

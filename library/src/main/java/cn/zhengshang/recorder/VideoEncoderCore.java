@@ -3,8 +3,9 @@ package cn.zhengshang.recorder;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
-import android.support.annotation.NonNull;
 import android.view.Surface;
+
+import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -30,6 +31,11 @@ public class VideoEncoderCore {
     private Surface mInputSurface;
 
     private Callback mCallback;
+
+    public VideoEncoderCore() {
+
+    }
+
     private final Runnable mRecordRunnable = new Runnable() {
         @Override
         public void run() {
@@ -93,17 +99,9 @@ public class VideoEncoderCore {
         }
     };
 
-    public VideoEncoderCore() {
-
-    }
-
     public void setSize(int width, int height) {
         this.mWidth = width;
         this.mHeight = height;
-    }
-
-    public void setFps(int fps) {
-        this.mFps = fps;
     }
 
     public void setBitRate(int bitRate) {
@@ -116,6 +114,10 @@ public class VideoEncoderCore {
 
     public void setCallback(Callback callback) {
         this.mCallback = callback;
+    }
+
+    public void setFps(int fps) {
+        this.mFps = fps;
     }
 
     public void prepare() {
@@ -145,17 +147,17 @@ public class VideoEncoderCore {
         }
     }
 
+    public void start() {
+        isRecording = true;
+        mEncoder.start();
+        new Thread(mRecordRunnable).start();
+    }
+
     public Surface getSurface() {
         if (mInputSurface == null) {
             throw new IllegalStateException("必须在 prepare 方法后调用");
         }
         return mInputSurface;
-    }
-
-    public void start() {
-        isRecording = true;
-        mEncoder.start();
-        new Thread(mRecordRunnable).start();
     }
 
     public void stop() {

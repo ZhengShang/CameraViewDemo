@@ -2,13 +2,14 @@ package cn.zhengshang.config;
 
 import cn.zhengshang.base.Constants;
 
-public class ManualConfig {
+public class ManualConfig implements Cloneable {
     private int ae;
     private long sec;
     private int iso;
     private int wb;
     private float af;
     private float wt;
+    private float scale;
     private boolean manual;
 
     ManualConfig() {
@@ -71,6 +72,14 @@ public class ManualConfig {
         this.manual = manual;
     }
 
+    public float getScale() {
+        return scale;
+    }
+
+    public void setScale(float scale) {
+        this.scale = scale;
+    }
+
     /**
      * 恢复到默认状态
      */
@@ -81,5 +90,11 @@ public class ManualConfig {
         wb = Constants.DEF_MANUAL_WB;
         af = Constants.DEF_MANUAL_AF;
         wt = Constants.DEF_MANUAL_WT;
+        scale = Constants.DEF_MANUAL_WT;
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 }

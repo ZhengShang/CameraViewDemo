@@ -11,7 +11,7 @@ public interface OnManualValueListener {
     /**
      * 实时返回当前的iso数值
      */
-    void onIsoChanged(long iso);
+    void onIsoChanged(int iso);
 
     /**
      * 实时返回当前的快门速度(sec)数值
