@@ -233,6 +233,9 @@ public class CaptureController {
     }
 
     private void runPreCapture(Surface previewSurface) {
+        if (mCaptureSession == null || mCameraDevice == null) {
+            return;
+        }
         try {
             final CaptureRequest.Builder builder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             builder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE);
@@ -258,11 +261,24 @@ public class CaptureController {
     }
 
     private void takeRealCapture() {
+        if (mCaptureSession == null || mCameraDevice == null) {
+            return;
+        }
         try {
             final CaptureRequest.Builder builder = mCameraDevice.createCaptureRequest(
                     mCameraConfig.isRecordingVideo()
                             ? CameraDevice.TEMPLATE_VIDEO_SNAPSHOT
                             : CameraDevice.TEMPLATE_STILL_CAPTURE);
+
+            CaptureRequest oriRequest = mOriBuilder.build();
+            for (CaptureRequest.Key key : oriRequest.getKeys()) {
+                Object value = mOriBuilder.get(key);
+                if (value == null) {
+                    continue;
+                }
+                builder.set(key, value);
+            }
+
             builder.set(CaptureRequest.CONTROL_CAPTURE_INTENT,
                     mCameraConfig.isRecordingVideo()
                             ? CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT

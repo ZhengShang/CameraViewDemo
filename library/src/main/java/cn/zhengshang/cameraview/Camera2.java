@@ -189,7 +189,6 @@ public class Camera2 extends CameraViewImpl {
             mCaptureSession = session;
             updateAutoFocus();
             updateFlash(mRequestBuilder);
-            setPreviewParamsToBuilder(mRequestBuilder);
             updatePreview();
 
             mCallback.onRequestBuilderCreate();
@@ -228,7 +227,7 @@ public class Camera2 extends CameraViewImpl {
         }
     };
 
-    public Camera2(Context context, CameraCallback callback, PreviewImpl preview) {
+    Camera2(Context context, CameraCallback callback, PreviewImpl preview) {
         super(context, callback, preview);
 
         mCameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
@@ -904,42 +903,6 @@ public class Camera2 extends CameraViewImpl {
         mMatrix.postTranslate(mPreview.getWidth() / 2f, mPreview.getHeight() / 2f);
     }
 
-    /**
-     * 将当前预览界面的参数设置到builder里面,主要在录制视频开始时和录制结束时调用.
-     * 手动模式会用到此方法
-     */
-    private void setPreviewParamsToBuilder(CaptureRequest.Builder builder) {
-        //屏幕的缩放
-        builder.set(CaptureRequest.SCALER_CROP_REGION, mCameraConfig.getRect());
-        //ae
-        builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, mCameraConfig.getManualConfig().getAe());
-
-        if (!mCameraConfig.getManualConfig().isManual()) {
-            return;
-        }
-
-        //manual awb
-        int mannualWb = mCameraConfig.getManualConfig().getWb();
-        if (mannualWb != Constants.DEF_MANUAL_WB) {
-            RggbChannelVector rggbChannelVector = CameraUtil.colorTemperature(mannualWb);
-            builder.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF);
-            builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-            builder.set(CaptureRequest.COLOR_CORRECTION_GAINS, rggbChannelVector);
-        }
-        //sec
-        long sec = mCameraConfig.getManualConfig().getSec();
-        if (sec != Constants.DEF_MANUAL_SEC) {
-            builder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
-            builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, sec);
-        }
-        //iso
-        int iso = mCameraConfig.getManualConfig().getIso();
-        if (iso != Constants.DEF_MANUAL_ISO) {
-            mRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
-            mRequestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
-        }
-    }
-
     protected void configMediaRecorder() throws Exception {
         mRecorderController.configForCamera2();
     }
@@ -958,17 +921,20 @@ public class Camera2 extends CameraViewImpl {
     }
 
     protected void closePreviewSession() {
-        if (mRecorderController != null) {
-            mRecorderController.stopRecord();
+        synchronized (mLock) {
+
+            if (mRecorderController != null) {
+                mRecorderController.stopRecord();
+            }
+            if (mCaptureSession != null) {
+                mCaptureSession.close();
+                mCaptureSession = null;
+            }
+            if (mRecorderController != null) {
+                mRecorderController.stopRecord();
+            }
+            CameraUtil.deleteEmptyFIle(getVideoOutputFilePath());
         }
-        if (mCaptureSession != null) {
-            mCaptureSession.close();
-            mCaptureSession = null;
-        }
-        if (mRecorderController != null) {
-            mRecorderController.stopRecord();
-        }
-        CameraUtil.deleteEmptyFIle(getVideoOutputFilePath());
     }
 
     /**
@@ -1158,18 +1124,20 @@ public class Camera2 extends CameraViewImpl {
         mPreview.setBufferSize(previewSize.getWidth(), previewSize.getHeight());
         Surface previewSurface = new Surface(mPreview.getSurfaceTexture());
         try {
-            configMediaRecorder();
-            List<Surface> surfaceList = new ArrayList<>();
-            mRequestBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            mRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CameraMetadata.CONTROL_CAPTURE_INTENT_PREVIEW);
-            mRequestBuilder.addTarget(previewSurface);
-            mRequestBuilder.addTarget(mRecorderController.getSurface());
+            synchronized (mLock) {
+                configMediaRecorder();
+                List<Surface> surfaceList = new ArrayList<>();
+                mRequestBuilder = mCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                mRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CameraMetadata.CONTROL_CAPTURE_INTENT_PREVIEW);
+                mRequestBuilder.addTarget(previewSurface);
+                mRequestBuilder.addTarget(mRecorderController.getSurface());
 
-            surfaceList.add(previewSurface);
-            surfaceList.add(imageReader.getSurface());
-            surfaceList.add(mRecorderController.getSurface());
+                surfaceList.add(previewSurface);
+                surfaceList.add(imageReader.getSurface());
+                surfaceList.add(mRecorderController.getSurface());
 
-            mCamera.createCaptureSession(surfaceList, mSessionCallback, mBackgroundHandler);
+                mCamera.createCaptureSession(surfaceList, mSessionCallback, mBackgroundHandler);
+            }
         } catch (Exception e) {
             Log.e(TAG, "startCaptureSession failed", e);
             mCallback.onFailed(CameraError.OPEN_FAILED);
@@ -1351,10 +1319,6 @@ public class Camera2 extends CameraViewImpl {
         updatePreview();
         mCaptureCallback.setState(STATE_PREVIEW);
     }
-
-
-
-
 
 
 }
