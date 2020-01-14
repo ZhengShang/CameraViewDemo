@@ -6,8 +6,6 @@ import android.view.Display;
 import android.view.OrientationEventListener;
 import android.view.Surface;
 
-import static cn.zhengshang.util.CameraUtil.translate2Rotation;
-
 
 /**
  * Monitors the value returned from {@link Display#getRotation()}.
@@ -50,11 +48,11 @@ public abstract class DisplayOrientationDetector {
                 }
 
                 //获取手机的真实朝向,用于调整对焦框的方向,即弹出Toast的位置
-                mRotation = translate2Rotation(orientation, mRotation);
-                if (mLastKnownDisplayOrientation != mRotation) {
-                    mLastKnownDisplayOrientation = mRotation;
-                    onRealOrientationChanged(mLastKnownDisplayOrientation);
-                }
+//                mRotation = translate2Rotation(orientation, mRotation);
+//                if (mLastKnownDisplayOrientation != mRotation) {
+//                    mLastKnownDisplayOrientation = mRotation;
+//                    onRealOrientationChanged(mLastKnownDisplayOrientation);
+//                }
                 //add end
             }
         };

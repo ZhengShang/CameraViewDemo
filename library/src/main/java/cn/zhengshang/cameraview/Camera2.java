@@ -927,6 +927,12 @@ public class Camera2 extends CameraViewImpl {
                 mRecorderController.stopRecord();
             }
             if (mCaptureSession != null) {
+                try {
+                    mCaptureSession.abortCaptures();
+                    mCaptureSession.stopRepeating();
+                } catch (CameraAccessException e) {
+                    e.printStackTrace();
+                }
                 mCaptureSession.close();
                 mCaptureSession = null;
             }

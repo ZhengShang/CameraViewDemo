@@ -18,6 +18,15 @@ public abstract class PreviewImpl {
 
     private int mHeight;
 
+    private Runnable mDispatchCallback = () -> mCallback.onSurfaceChanged();
+
+    void dispatchSurfaceChanged() {
+        if (getView() != null) {
+            getView().removeCallbacks(mDispatchCallback);
+            getView().postDelayed(mDispatchCallback, 100);
+        }
+    }
+
     public void setCallback(Callback callback) {
         mCallback = callback;
     }
@@ -31,10 +40,6 @@ public abstract class PreviewImpl {
     public abstract void setDisplayOrientation(int displayOrientation);
 
     public abstract boolean isReady();
-
-    void dispatchSurfaceChanged() {
-        mCallback.onSurfaceChanged();
-    }
 
     public SurfaceHolder getSurfaceHolder() {
         return null;
