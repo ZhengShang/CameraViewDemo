@@ -18,18 +18,16 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/primary"
+    android:background="@android:color/black"
     tools:context=".MainActivity">
 
     <cn.zhengshang.cameraview.CameraView
         android:id="@+id/camera"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentTop="true"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_centerHorizontal="true"
         android:adjustViewBounds="true"
-        android:background="@android:color/black"/>
+        android:background="@android:color/black" />
 
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar"

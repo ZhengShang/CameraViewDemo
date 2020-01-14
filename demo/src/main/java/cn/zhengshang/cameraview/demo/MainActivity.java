@@ -121,10 +121,15 @@ public class MainActivity extends AppCompatActivity implements
     private TextView manualTitle, manualValue;
     private Callback mCallback
             = new Callback() {
-
         @Override
         public void onFailed(CameraError error) {
             super.onFailed(error);
+            Log.e("MainActivity", "onFailed: [error] = " + error);
+        }
+
+        @Override
+        public void onRequestBuilderCreate(CameraView cameraView) {
+
         }
 
         @Override
