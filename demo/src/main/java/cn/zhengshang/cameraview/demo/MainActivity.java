@@ -13,12 +13,15 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.transition.TransitionManager;
 import android.util.Log;
 import android.util.Range;
 import android.util.Rational;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.CompoundButton;
 import android.widget.SeekBar;
 import android.widget.Switch;
@@ -31,6 +34,8 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.constraintlayout.widget.ConstraintSet;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.DialogFragment;
@@ -92,6 +97,7 @@ public class MainActivity extends AppCompatActivity implements
 
     private int mCurrentFlash;
 
+    private ConstraintLayout mRoot;
     private CameraView mCameraView;
 
     private Handler mBackgroundHandler;
@@ -202,7 +208,16 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        int rotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_JUMPCUT;
+        Window win = getWindow();
+//        win.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        WindowManager.LayoutParams winParams = win.getAttributes();
+        winParams.rotationAnimation = rotationAnimation;
+        win.setAttributes(winParams);
+
         setContentView(R.layout.activity_main);
+        mRoot = findViewById(R.id.root);
         mCameraView = findViewById(R.id.camera);
         if (mCameraView != null) {
             mCameraView.addCallback(mCallback);
@@ -223,13 +238,10 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         Switch hdrSwitch = findViewById(R.id.switch_hdr);
-        hdrSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (mCameraView != null) {
-                    isHdrMode = isChecked;
-                    mCameraView.setHdrMode(isHdrMode);
-                }
+        hdrSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (mCameraView != null) {
+                isHdrMode = isChecked;
+                mCameraView.setHdrMode(isHdrMode);
             }
         });
 
@@ -479,7 +491,16 @@ public class MainActivity extends AppCompatActivity implements
         if (mCameraView != null) {
             Toast.makeText(this, ratio.toString(), Toast.LENGTH_SHORT).show();
             mCameraView.setAspectRatio(ratio);
+            anim(ratio);
         }
+    }
+
+    private void anim(AspectRatio ratio) {
+        ConstraintSet set = new ConstraintSet();
+        set.clone(mRoot);
+        set.setDimensionRatio(R.id.camera, ratio.toString());
+        TransitionManager.beginDelayedTransition(mRoot);
+        set.applyTo(mRoot);
     }
 
     private Handler getBackgroundHandler() {

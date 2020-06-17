@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
+<?xml version="1.0" encoding="utf-8"?><!--
     Copyright (C) 2016 The Android Open Source Project
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -11,8 +10,7 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 -->
-<RelativeLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
@@ -25,37 +23,36 @@
         android:id="@+id/camera"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_centerVertical="true"
         android:adjustViewBounds="true"
-        android:background="@android:color/black"/>
+        android:background="@android:color/black"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentTop="true"/>
+        android:layout_alignParentTop="true"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/take_picture"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:srcCompat="@drawable/ic_camera"
-        app:useCompatPadding="true"/>
+        app:useCompatPadding="true" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/record_video"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
         android:tint="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toEndOf="@id/take_picture"
         app:srcCompat="@drawable/ic_videocam_black_24dp"
-        app:useCompatPadding="true"/>
+        app:useCompatPadding="true" />
 
 
     <Switch
@@ -64,31 +61,35 @@
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
         android:text="HDR"
-        android:textColor="@android:color/white"/>
+        android:textColor="@android:color/white"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <SeekBar
         android:id="@+id/ae_seekbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/take_picture"
-        android:layout_margin="12dp"/>
+        android:layout_margin="12dp"
+        app:layout_constraintBottom_toTopOf="@id/take_picture" />
 
     <TextView
         android:id="@+id/manual_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_above="@id/ae_seekbar"
         android:layout_marginLeft="12dp"
         android:textColor="@android:color/white"
-        />
+        app:layout_constraintBottom_toTopOf="@id/ae_seekbar"
+        app:layout_constraintStart_toStartOf="parent" />
 
     <TextView
         android:id="@+id/manual_text_value"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_above="@id/ae_seekbar"
         android:layout_marginLeft="12dp"
-        android:layout_toRightOf="@id/manual_text"
         android:textColor="@android:color/white"
-        tools:text="2222"/>
-</RelativeLayout>
+        app:layout_constraintBottom_toTopOf="@id/ae_seekbar"
+        app:layout_constraintEnd_toStartOf="@id/manual_text"
+        tools:text="2222" />
+
+
+</androidx.constraintlayout.widget.ConstraintLayout>
