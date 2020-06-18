@@ -76,19 +76,21 @@
         android:id="@+id/manual_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginLeft="12dp"
+        android:layout_marginBottom="12dp"
         android:textColor="@android:color/white"
         app:layout_constraintBottom_toTopOf="@id/ae_seekbar"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="@id/ae_seekbar"
+        tools:text="zoom" />
 
     <TextView
         android:id="@+id/manual_text_value"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginLeft="12dp"
+        android:layout_marginStart="12dp"
         android:textColor="@android:color/white"
-        app:layout_constraintBottom_toTopOf="@id/ae_seekbar"
-        app:layout_constraintEnd_toStartOf="@id/manual_text"
+        app:layout_constraintBottom_toBottomOf="@id/manual_text"
+        app:layout_constraintStart_toEndOf="@id/manual_text"
+        app:layout_constraintTop_toTopOf="@id/manual_text"
         tools:text="2222" />
 
 

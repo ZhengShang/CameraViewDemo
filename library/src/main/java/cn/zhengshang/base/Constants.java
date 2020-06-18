@@ -13,9 +13,9 @@ public class Constants {
     public static final String CAMERA_API_CAMERA2 = "camera2";
     public static final String CAMERA_API_HW_SUPER_SLOW = "huawei_super_slow_motion";
 
-    public static final String BROADCAST_ACTION_TAKE_PHOTO = "zyplay.action.take.photo";
-    public static final String BROADCAST_ACTION_RECORING_STOP = "zyplay.action.recording.stop";
-    public static final String BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION = "zyplay.action.switch.to.normal_slow_motion";
+    public static final String BROADCAST_ACTION_TAKE_PHOTO = "action.take.photo";
+    public static final String BROADCAST_ACTION_RECORING_STOP = "action.recording.stop";
+    public static final String BROADCAST_ACTION_SWITCH_TO_NORMAL_SLOW_MOTION = "action.switch.to.normal_slow_motion";
 
     public static final int FOCUS_AREA_SIZE_DEFAULT = 300;
     public static final int FOCUS_METERING_AREA_WEIGHT_DEFAULT = 500;

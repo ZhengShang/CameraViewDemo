@@ -22,7 +22,7 @@ import cn.zhengshang.listener.OnManualValueListener;
 import cn.zhengshang.listener.OnVideoOutputFileListener;
 import cn.zhengshang.util.CameraUtil;
 
-public abstract class CameraViewImpl implements ZyCamera {
+public abstract class CameraViewImpl implements ICamera {
 
     /**
      * 使用 static 来持久化当前引用 , 避免被重建

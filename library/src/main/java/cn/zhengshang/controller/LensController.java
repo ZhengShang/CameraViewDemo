@@ -2,15 +2,15 @@ package cn.zhengshang.controller;
 
 import android.animation.ValueAnimator;
 
-import cn.zhengshang.base.ZyCamera;
+import cn.zhengshang.base.ICamera;
 
 public class LensController {
 
-    private ZyCamera mCamera;
+    private ICamera mCamera;
     private ValueAnimator mSmoothFocusAnim;
     private ValueAnimator mSmoothZoomAnim;
 
-    public LensController(ZyCamera camera) {
+    public LensController(ICamera camera) {
         mCamera = camera;
     }
 

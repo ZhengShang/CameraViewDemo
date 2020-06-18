@@ -20,7 +20,7 @@ import cn.zhengshang.listener.OnVideoOutputFileListener;
  * Created by shangzheng on 2019-05-09.
  *            🐳🐳🐳🍒           16:42 🥥
  */
-public interface ZyCamera {
+public interface ICamera {
 
     void start();
 

@@ -11,8 +11,8 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import cn.zhengshang.base.ICamera;
 import cn.zhengshang.base.PreviewImpl;
-import cn.zhengshang.base.ZyCamera;
 import cn.zhengshang.cameraview.Camera1;
 import cn.zhengshang.cameraview.Camera2;
 import cn.zhengshang.cameraview.Camera2Api23;
@@ -23,7 +23,7 @@ public class CameraController {
 
     private static final String TAG = "CameraController";
     private int mStartApi;
-    private Class<? extends ZyCamera> mAutoClz;
+    private Class<? extends ICamera> mAutoClz;
 
     public CameraController(int startApi) {
         mStartApi = startApi;
@@ -34,7 +34,7 @@ public class CameraController {
      * @param context Context
      * @return 返回对应的相机实例Class
      */
-    public Class<? extends ZyCamera> autoInstanceCamera(Context context) throws RuntimeException {
+    public Class<? extends ICamera> autoInstanceCamera(Context context) throws RuntimeException {
 
         if (mStartApi == 0) {
             if (mAutoClz != null) {
@@ -50,7 +50,7 @@ public class CameraController {
     }
 
     @NonNull
-    private Class<? extends ZyCamera> autoChooseCamera(Context context) {
+    private Class<? extends ICamera> autoChooseCamera(Context context) {
         if (SpecialDevicesList.isForceUseCamera1()) {
             return Camera1.class;
         }
@@ -76,10 +76,10 @@ public class CameraController {
         }
     }
 
-    public ZyCamera newInstanceCamera(Class<? extends ZyCamera> clz,
-                                      Context context,
-                                      CameraCallback callback,
-                                      PreviewImpl preview) {
+    public ICamera newInstanceCamera(Class<? extends ICamera> clz,
+                                     Context context,
+                                     CameraCallback callback,
+                                     PreviewImpl preview) {
         try {
             Log.v(TAG, "Instance camera class = " + clz.getSimpleName());
             return clz.getDeclaredConstructor(Context.class,

@@ -78,7 +78,7 @@
                 android:title="AF"/>
             <item
                 android:id="@+id/manual_wt"
-                android:title="WT"/>
+                android:title="Zoom"/>
         </menu>
     </item>
 </menu>

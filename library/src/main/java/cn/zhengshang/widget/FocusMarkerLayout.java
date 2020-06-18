@@ -29,7 +29,7 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
-import cn.zhengshang.base.ZyCamera;
+import cn.zhengshang.base.ICamera;
 import cn.zhengshang.cameraview.CameraView;
 import cn.zhengshang.cameraview.R;
 import cn.zhengshang.util.CameraUtil;
@@ -45,7 +45,7 @@ import static cn.zhengshang.cameraview.CameraView.GRID_NONE;
 @TargetApi(14)
 public class FocusMarkerLayout extends FrameLayout {
 
-    private ZyCamera mZyCamera;
+    private ICamera mICamera;
     private View mFocusMarkerContainer;
     private View mFocusLayout;
     private AEsun mAEsun;
@@ -104,7 +104,7 @@ public class FocusMarkerLayout extends FrameLayout {
         mGestureDetector = new GestureDetector(context, new MyGestureListener());
         mScaleGestureDetector = new ScaleGestureDetector(context, new ScaleGestureListener());
 
-        mAEsun.setOnAEChangeListener(ae -> mZyCamera.setAEValue(ae));
+        mAEsun.setOnAEChangeListener(ae -> mICamera.setAEValue(ae));
     }
 
     public void setRotation(int rotation) {
@@ -112,8 +112,8 @@ public class FocusMarkerLayout extends FrameLayout {
         mFocusMarkerContainer.setRotation(90 * (3 - rotation));
     }
 
-    public void setImpl(ZyCamera impl) {
-        mZyCamera = impl;
+    public void setImpl(ICamera impl) {
+        mICamera = impl;
     }
 
     public FocusMarkerLayout setEnableScaleZoom(boolean enableScaleZoom) {
@@ -292,13 +292,13 @@ public class FocusMarkerLayout extends FrameLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (mZyCamera == null) {
+        if (mICamera == null) {
             return true;
         }
-        if (!mZyCamera.isCameraOpened()) {
+        if (!mICamera.isCameraOpened()) {
             return true;
         }
-        if (mZyCamera.isManualMode()) {
+        if (mICamera.isManualMode()) {
             return true;
         }
         mGestureDetector.onTouchEvent(event);
@@ -361,9 +361,9 @@ public class FocusMarkerLayout extends FrameLayout {
 
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
-            if (mZyCamera.isManualWTSupported()) {
+            if (mICamera.isManualWTSupported()) {
                 if (mMaxRatio == 0) {
-                    mMaxRatio = mZyCamera.getMaxZoom();
+                    mMaxRatio = mICamera.getMaxZoom();
                 }
 
                 final float sf = detector.getScaleFactor();
@@ -382,7 +382,7 @@ public class FocusMarkerLayout extends FrameLayout {
                 // updating the zoom level and other controls.
                 long now = SystemClock.uptimeMillis();
                 if (now > mDelayZoomCallUntilMillis) {
-                    mZyCamera.scaleZoom(mCurrentRatio);
+                    mICamera.scaleZoom(mCurrentRatio);
                     mDelayZoomCallUntilMillis = now + ZOOM_MINIMUM_WAIT_MILLIS;
                 }
             }
@@ -401,18 +401,18 @@ public class FocusMarkerLayout extends FrameLayout {
         public boolean onSingleTapUp(MotionEvent e) {
             unLockAEandAF();
             focus(e.getX(), e.getY());
-            mZyCamera.unLockAEandAF();
-            mZyCamera.resetAF(e, false);
+            mICamera.unLockAEandAF();
+            mICamera.resetAF(e, false);
             return super.onSingleTapUp(e);
         }
 
         @Override
         public void onLongPress(MotionEvent e) {
             unLockAEandAF();
-            mZyCamera.unLockAEandAF();
+            mICamera.unLockAEandAF();
             focus(e.getX(), e.getY());
             lockAEandAF();
-            mZyCamera.resetAF(e, true);
+            mICamera.resetAF(e, true);
         }
 
         @Override
@@ -424,10 +424,10 @@ public class FocusMarkerLayout extends FrameLayout {
                 return true;
             }
             if (mAEsun.getMaxAe() == 0) {
-                if (mZyCamera.getAERange() == null) {
+                if (mICamera.getAERange() == null) {
                     return true;
                 }
-                mAEsun.setMaxAeRange(mZyCamera.getAERange().getUpper());
+                mAEsun.setMaxAeRange(mICamera.getAERange().getUpper());
             }
             if (mRotation == 0) {
                 adjustAe((int) distanceX);

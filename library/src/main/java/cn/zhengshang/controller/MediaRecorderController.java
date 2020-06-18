@@ -10,7 +10,7 @@ import android.view.Surface;
 
 import java.io.IOException;
 
-import cn.zhengshang.base.ZyCamera;
+import cn.zhengshang.base.ICamera;
 import cn.zhengshang.config.CameraConfig;
 import cn.zhengshang.config.VideoConfig;
 
@@ -18,13 +18,13 @@ import static cn.zhengshang.controller.SoundController.SOUND_ID_START;
 
 public class MediaRecorderController {
 
-    private ZyCamera mZyCamera;
+    private ICamera mICamera;
     private MediaRecorder mMediaRecorder;
     private CameraConfig mCameraConfig;
     private State mMrState = State.INIT;
 
-    public MediaRecorderController(ZyCamera zyCamera, CameraConfig config) {
-        mZyCamera = zyCamera;
+    public MediaRecorderController(ICamera iCamera, CameraConfig config) {
+        mICamera = iCamera;
         mCameraConfig = config;
         mMediaRecorder = new MediaRecorder();
     }
@@ -50,7 +50,7 @@ public class MediaRecorderController {
         }
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mICamera.generateVideoFilePath());
         mMediaRecorder.setVideoFrameRate(config.getFps());
         mMediaRecorder.setVideoSize(config.getSize().getWidth(), config.getSize().getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
@@ -103,7 +103,7 @@ public class MediaRecorderController {
 
 
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mICamera.generateVideoFilePath());
         mMediaRecorder.setVideoFrameRate(config.getFps());
         Log.d("MediaRecorderController", "config.getSize().getWidth():" + config.getSize().getWidth());
         Log.d("MediaRecorderController", "config.getSize().getHeight():" + config.getSize().getHeight());
@@ -137,7 +137,7 @@ public class MediaRecorderController {
         mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setProfile(profile);
-        mMediaRecorder.setOutputFile(mZyCamera.generateVideoFilePath());
+        mMediaRecorder.setOutputFile(mICamera.generateVideoFilePath());
         mMediaRecorder.setOrientationHint(mCameraConfig.getOrientation());
         setMaxFileListener();
         mMediaRecorder.prepare();
@@ -160,8 +160,8 @@ public class MediaRecorderController {
                             }
                         }, 1000);
                         Log.d("MediaRecorderGenerateor", "MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED");
-                        mZyCamera.stopRecordingVideo(false);
-                        mZyCamera.startRecordingVideo(false);
+                        mICamera.stopRecordingVideo(false);
+                        mICamera.startRecordingVideo(false);
                     }
                 }
             });
