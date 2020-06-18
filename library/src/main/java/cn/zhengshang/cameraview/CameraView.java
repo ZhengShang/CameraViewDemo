@@ -10,7 +10,6 @@ import android.media.MediaRecorder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.util.Range;
 import android.widget.FrameLayout;
 
@@ -321,7 +320,6 @@ public class CameraView extends FrameLayout {
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
         AspectRatio ratio = getAspectRatio();
-        Log.e("CameraView", "onMeasure: [widthMeasureSpec, heightMeasureSpec] = ");
         if (mDisplayOrientationDetector.getLastKnownDisplayOrientation() % 180 == 0) {
             ratio = ratio.inverse();
         }
