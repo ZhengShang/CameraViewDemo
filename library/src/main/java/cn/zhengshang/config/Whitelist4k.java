@@ -4,10 +4,6 @@ package cn.zhengshang.config;
 import android.os.Build;
 import android.util.ArrayMap;
 
-/**
- * 4k 白名单
- * Created by Lize on 2018/6/6.
- */
 final class Whitelist4k {
 
     private static final ArrayMap<String, String> WHITELIST = new ArrayMap<>(120);
